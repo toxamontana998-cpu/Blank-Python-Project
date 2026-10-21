@@ -7,6 +7,7 @@ import requests
 import yt_dlp
 import sqlite3
 from datetime import datetime
+import json
 
 TELEGRAM_BOT_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN")
 FASTSAVER_API_KEY = os.environ.get("FASTSAVER_API_KEY")
@@ -18,7 +19,7 @@ bot = telebot.TeleBot(TELEGRAM_BOT_TOKEN)
 app = Flask(__name__)
 DB_PATH = 'users.db'
 
-# --- БАЗА ДАННЫХ ДЛЯ ЛИМИТОВ ---
+# --- БАЗА ДАННЫХ ---
 def init_db():
     conn = sqlite3.connect(DB_PATH)
     c = conn.cursor()
@@ -33,29 +34,20 @@ def check_limit(user_id):
     today = datetime.now().strftime("%Y-%m-%d")
     c.execute("SELECT count, last_date, is_premium FROM users WHERE user_id = ?", (user_id,))
     row = c.fetchone()
-
     if row:
         count, last_date, is_premium = row
         if is_premium == 1:
-            conn.close()
-            return True 
+            conn.close(); return True 
         if last_date != today:
             c.execute("UPDATE users SET count = 1, last_date = ? WHERE user_id = ?", (today, user_id))
-            conn.commit()
-            conn.close()
-            return True
+            conn.commit(); conn.close(); return True
         if count >= 3:
-            conn.close()
-            return False 
+            conn.close(); return False 
         c.execute("UPDATE users SET count = count + 1 WHERE user_id = ?", (user_id,))
-        conn.commit()
-        conn.close()
-        return True
+        conn.commit(); conn.close(); return True
     else:
         c.execute("INSERT INTO users (user_id, count, last_date, is_premium) VALUES (?, 1, ?, 0)", (user_id, today))
-        conn.commit()
-        conn.close()
-        return True
+        conn.commit(); conn.close(); return True
 
 def set_premium(user_id):
     conn = sqlite3.connect(DB_PATH)
@@ -63,15 +55,14 @@ def set_premium(user_id):
     c.execute("UPDATE users SET is_premium = 1 WHERE user_id = ?", (user_id,))
     if c.rowcount == 0:
         c.execute("INSERT INTO users (user_id, count, last_date, is_premium) VALUES (?, 0, '', 1)", (user_id,))
-    conn.commit()
-    conn.close()
+    conn.commit(); conn.close()
 
-# --- ВЕБ-СЕРВЕР ДЛЯ RENDER ---
+# --- ВЕБ-СЕРВЕР ---
 @app.route('/')
 def home():
     return "Bot is alive!"
 
-# --- КОМАНДЫ БОТА ---
+# --- КОМАНДЫ ---
 @bot.message_handler(commands=['start'])
 def start(message):
     bot.send_message(message.chat.id, 
@@ -83,27 +74,19 @@ def start(message):
 @bot.message_handler(commands=['buy'])
 def buy(message):
     prices = [types.LabeledPrice(label="Премиум подписка", amount=50)]
-    bot.send_invoice(
-        message.chat.id,
-        title="Безлимит на 30 дней",
-        description="Снимает лимит в 3 видео в день. Качай сколько хочешь!",
-        invoice_payload="premium_sub",
-        provider_token="", 
-        currency="XTR", 
-        prices=prices,
-        start_parameter="buy_premium"
-    )
+    bot.send_invoice(message.chat.id, title="Безлимит на 30 дней", description="Качай без ограничений!",
+        invoice_payload="premium_sub", provider_token="", currency="XTR", prices=prices, start_parameter="buy_premium")
 
 @bot.pre_checkout_query_handler(func=lambda query: True)
 def checkout(pre_checkout_query):
-    bot.answer_pre_checkout_query(pre_checkout_query.id, ok=True, error_message="Что-то пошло не так.")
+    bot.answer_pre_checkout_query(pre_checkout_query.id, ok=True, error_message="Ошибка.")
 
 @bot.message_handler(content_types=['successful_payment'])
 def got_payment(message):
     set_premium(message.chat.id)
-    bot.send_message(message.chat.id, "🎉 Оплата прошла успешно! Теперь у тебя Премиум. Качай без ограничений!")
+    bot.send_message(message.chat.id, "🎉 Оплата прошла! Теперь у тебя Премиум.")
 
-# --- ОБРАБОТКА ССЫЛОК ---
+# --- ОБРАБОТКА ---
 @bot.message_handler(content_types=['text'])
 def handle_link(message):
     if message.text.startswith('/'):
@@ -111,12 +94,12 @@ def handle_link(message):
         
     url = message.text.strip()
     if not url.startswith('http'):
-        bot.reply_to(message, "🤷‍♂️ Это не похоже на ссылку. Кидай ссылку на видео!")
+        bot.reply_to(message, "🤷‍♂️ Это не ссылка.")
         return
 
     user_id = message.chat.id
     if not check_limit(user_id):
-        bot.reply_to(message, "❌ Твой бесплатный лимит (3 видео) на сегодня исчерпан.\n\nКупи Премиум за 50 ⭐, чтобы качать без ограничений! Жми /buy")
+        bot.reply_to(message, "❌ Лимит (3 видео) исчерпан.\nКупи Премиум за 50 ⭐! Жми /buy")
         return
 
     msg = bot.reply_to(message, "⏳ Скачиваю видео, подожди...")
@@ -124,51 +107,66 @@ def handle_link(message):
 
     try:
         if "instagram.com" in url:
-            # Скачивание через FastSaver API (Инстаграм)
+            # ИНСТАГРАМ (FastSaver)
             headers = {"X-Api-Key": FASTSAVER_API_KEY}
             res = requests.get(f"https://api.fastsaver.io/v1/fetch?url={url}", headers=headers)
-            data = res.json()
-            video_url = data.get("download_url")
-            
+            video_url = res.json().get("download_url")
             if video_url:
                 bot.send_video(message.chat.id, video_url, caption="🔥 Держи видео!")
                 bot.delete_message(message.chat.id, msg.message_id)
             else:
-                bot.edit_message_text(f"❌ Ошибка FastSaver: {data}", chat_id=message.chat.id, message_id=msg.message_id)
+                bot.edit_message_text("❌ Ошибка скачивания из Инстаграма.", chat_id=message.chat.id, message_id=msg.message_id)
+        
+        elif "youtube.com" in url or "youtu.be" in url:
+            # ЮТУБ (Обход через Cobalt API)
+            cobalt_api = "https://api.cobalt.tools/api/json"
+            headers = {"Accept": "application/json", "Content-Type": "application/json"}
+            payload = {"url": url}
+            
+            res = requests.post(cobalt_api, json=payload, headers=headers)
+            data = res.json()
+            
+            if data.get("status") == "stream" or data.get("status") == "redirect":
+                video_url = data.get("url")
+                bot.send_video(message.chat.id, video_url, caption="🔥 Держи видео с YouTube!")
+                bot.delete_message(message.chat.id, msg.message_id)
+            else:
+                # Если Cobalt не смог, пробуем через yt-dlp (вдруг пронесет)
+                raise Exception("Cobalt не смог скачать YouTube")
+                
         else:
-            # Скачивание через yt-dlp (YouTube, TikTok, VK)
-            ydl_opts = {
-                'format': 'best[ext=mp4]/best',
-                'outtmpl': filename,
-                'quiet': True,
-                'no_warnings': True,
-                'extractor_args': {
-                    'youtube': {
-                        'player_client': ['android', 'ios']
-                    }
-                }
-            }
+            # TIKTOK, VK и остальные (yt-dlp)
+            ydl_opts = {'format': 'best[ext=mp4]/best', 'outtmpl': filename, 'quiet': True, 'no_warnings': True}
             with yt_dlp.YoutubeDL(ydl_opts) as ydl:
                 ydl.download([url])
-                
             with open(filename, 'rb') as video:
-                bot.send_video(message.chat.id, video, caption="🔥 Держи видео без логотипов!")
-                
+                bot.send_video(message.chat.id, video, caption="🔥 Держи видео!")
             os.remove(filename)
             bot.delete_message(message.chat.id, msg.message_id)
 
     except Exception as e:
-        bot.edit_message_text(f"❌ Ошибка: {str(e)[:200]}", chat_id=message.chat.id, message_id=msg.message_id)
-        if os.path.exists(filename):
-            os.remove(filename)
+        # Если Cobalt сдох, пробуем yt-dlp напоследок
+        try:
+            if "youtube" in url:
+                ydl_opts = {'format': 'best[ext=mp4]/best', 'outtmpl': filename, 'quiet': True}
+                with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+                    ydl.download([url])
+                with open(filename, 'rb') as video:
+                    bot.send_video(message.chat.id, video, caption="🔥 Держи видео!")
+                os.remove(filename)
+                bot.delete_message(message.chat.id, msg.message_id)
+            else:
+                raise e
+        except:
+            bot.edit_message_text(f"❌ Не удалось скачать. Возможно, ссылка приватная или сервис перегружен.", chat_id=message.chat.id, message_id=msg.message_id)
+            if os.path.exists(filename):
+                os.remove(filename)
 
-# --- ЗАПУСК ---
 def main():
     init_db()
     def run_flask():
         port = int(os.environ.get('PORT', 8080))
         app.run(host='0.0.0.0', port=port)
-
     threading.Thread(target=run_flask).start()
     bot.infinity_polling(timeout=20, long_polling_timeout=10)
 
