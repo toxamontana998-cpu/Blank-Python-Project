@@ -76,9 +76,10 @@ def home():
 @bot.message_handler(commands=['start'])
 def start(message):
     bot.send_message(message.chat.id, 
-                     "Привет! 📥 Я скачиваю видео из Instagram, TikTok, YouTube или VK.\n\n"
-                     "Бесплатный лимит — 3 видео в сутки.\n"
-                     "Хочешь безлимит? Жми /buy")
+                 "Привет! 📥 Я — Контент-качалка.\n\n"
+                 "Просто отправь мне ссылку на видео из Instagram, TikTok, YouTube или VK, "
+                 "и я скачаю его БЕЗ водяных знаков.\n\n"
+                 "🔥 Бесплатно: 3 видео в сутки. Хочешь больше — жми /buy")
 
 @bot.message_handler(commands=['buy'])
 def buy(message):
