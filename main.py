@@ -3,8 +3,10 @@ import os
 import re
 import sqlite3
 import tempfile
+import io
+import json
 from datetime import datetime, timezone
-from urllib.parse import urlsplit
+from urllib.parse import quote, urlsplit
 
 import telebot
 import requests
@@ -42,6 +44,13 @@ ALLOWED_DOMAINS = (
 VIDEO_EXTENSIONS = {".mp4", ".m4v", ".mov", ".webm", ".mkv"}
 
 bot = telebot.TeleBot(TELEGRAM_BOT_TOKEN)
+
+
+class FastSaverApiError(RuntimeError):
+    def __init__(self, status_code: int, response_body: str) -> None:
+        super().__init__(f"FastSaver API returned HTTP {status_code}")
+        self.status_code = status_code
+        self.response_body = response_body
 
 
 def initialize_database() -> None:
@@ -152,38 +161,72 @@ def update_status(chat_id: int, message_id: int, text: str) -> None:
         logger.warning("Could not update status message in chat %s", chat_id)
 
 
+def format_fastsaver_response(response: requests.Response) -> str:
+    try:
+        body = json.dumps(response.json(), ensure_ascii=False, indent=2)
+    except ValueError:
+        body = response.text or "<empty response>"
+
+    for secret in (TELEGRAM_BOT_TOKEN, FASTSAVER_API_KEY):
+        if secret:
+            body = body.replace(secret, "[secret redacted]")
+    return body
+
+
+def send_fastsaver_error_report(chat_id: int, error: FastSaverApiError) -> None:
+    report = (
+        f"FastSaver API response (HTTP {error.status_code}):\n"
+        f"{error.response_body}"
+    )
+    try:
+        if len(report) <= 3900:
+            bot.send_message(chat_id, report)
+        else:
+            document = io.BytesIO(report.encode("utf-8"))
+            document.name = "fastsaver-error.json"
+            bot.send_document(
+                chat_id,
+                document,
+                caption=f"FastSaver API response (HTTP {error.status_code})",
+            )
+    except Exception:
+        logger.exception("Could not send the FastSaver error report to Telegram")
+
+
 def get_fastsaver_video_urls(instagram_url: str) -> list[str]:
     if not FASTSAVER_API_KEY:
         raise RuntimeError("FASTSAVER_API_KEY is not configured")
 
+    encoded_url = quote(instagram_url, safe="")
     response = requests.get(
-        FASTSAVER_API_URL,
-        params={"url": instagram_url},
+        f"{FASTSAVER_API_URL}?url={encoded_url}",
         headers={"X-Api-Key": FASTSAVER_API_KEY},
         timeout=(10, 30),
     )
-    if not response.ok:
-        try:
-            error_payload = response.json()
-        except ValueError:
-            error_payload = {}
-        detail = error_payload.get("detail", response.reason)
-        if response.status_code == 401:
-            detail = "Invalid or missing FastSaver API key"
-        raise RuntimeError(
-            f"FastSaver API returned HTTP {response.status_code}: {detail}"
+    if response.status_code != 200:
+        raise FastSaverApiError(
+            response.status_code,
+            format_fastsaver_response(response),
         )
 
     try:
         payload = response.json()
     except ValueError as error:
-        raise RuntimeError("FastSaver API returned invalid JSON") from error
+        raise FastSaverApiError(
+            response.status_code,
+            format_fastsaver_response(response),
+        ) from error
 
     if not isinstance(payload, dict):
-        raise RuntimeError("FastSaver API returned an unexpected JSON response")
+        raise FastSaverApiError(
+            response.status_code,
+            format_fastsaver_response(response),
+        )
     if not payload.get("ok"):
-        detail = payload.get("detail") or "unknown API error"
-        raise RuntimeError(f"FastSaver API error: {detail}")
+        raise FastSaverApiError(
+            response.status_code,
+            format_fastsaver_response(response),
+        )
 
     if payload.get("type") == "video":
         candidates = [payload.get("download_url")]
@@ -207,7 +250,10 @@ def get_fastsaver_video_urls(instagram_url: str) -> list[str]:
         video_urls.append(candidate)
 
     if not video_urls:
-        raise RuntimeError("FastSaver response did not contain a video download URL")
+        raise FastSaverApiError(
+            response.status_code,
+            format_fastsaver_response(response),
+        )
     return video_urls
 
 
@@ -397,6 +443,20 @@ def handle_link(message: telebot.types.Message) -> None:
             release_daily_slot(user_id, usage_date)
         except sqlite3.Error:
             logger.exception("Could not release daily quota after download failure")
+        if isinstance(error, FastSaverApiError):
+            logger.error(
+                "FastSaver API returned HTTP %s:\n%s",
+                error.status_code,
+                error.response_body,
+            )
+            update_status(
+                message.chat.id,
+                status_message.message_id,
+                f"FastSaver returned HTTP {error.status_code}. Full response follows.",
+            )
+            send_fastsaver_error_report(message.chat.id, error)
+            return
+
         detail = safe_error_detail(error)
         logger.error(
             "Video request failed for user %s (%s): %s",
