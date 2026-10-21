@@ -479,15 +479,15 @@ def handle_link(message: telebot.types.Message) -> None:
 
 def main() -> None:
     initialize_database()
-    logger.info("Telegram video bot is running")
-def run_flask():
-    port = int(os.environ.get('PORT', 8080))
-    app.run(host='0.0.0.0', port=port)
-
-threading.Thread(target=run_flask).start()
-
-    bot.infinity_polling(timeout=20, long_polling_timeout=20)
-
+    logger.info("Telegram video bot is running...")
+    
+    def run_flask():
+        port = int(os.environ.get('PORT', 8080))
+        app.run(host='0.0.0.0', port=port)
+        
+    threading.Thread(target=run_flask).start()
+    
+    bot.infinity_polling(timeout=20, long_polling_timeout=10)
 
 if __name__ == "__main__":
     main()
