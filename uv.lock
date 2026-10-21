@@ -180,15 +180,15 @@ name = "blank-python-project"
 version = "0.1.0"
 source = { editable = "." }
 dependencies = [
-    { name = "parth-dl" },
     { name = "pytelegrambotapi" },
+    { name = "requests" },
     { name = "yt-dlp" },
 ]
 
 [package.metadata]
 requires-dist = [
-    { name = "parth-dl", specifier = "==1.2.1" },
     { name = "pytelegrambotapi", specifier = ">=4.37.1" },
+    { name = "requests", specifier = ">=2.34.2" },
     { name = "yt-dlp", specifier = "==2026.8.19" },
 ]
 
@@ -566,15 +566,6 @@ wheels = [
     { url = "https://files.pythonhosted.org/packages/b3/ce/2efa1f32a07adfe041d48c6d04c08b6f9db66b8512c765983172399b2855/multidict-7.1.0-cp315-cp315t-win_amd64.whl", hash = "sha256:55392202cb374dd1a1f89a8ce1586644870d9e936752059d053e576acc50bc89", size = 99671, upload-time = "2026-10-09T20:31:31.282Z" },
     { url = "https://files.pythonhosted.org/packages/a9/b3/a44c301fe13716c5f2c08afd89a481018988cde4b337b36e28a2b0fcf3a3/multidict-7.1.0-cp315-cp315t-win_arm64.whl", hash = "sha256:f979a077d1c0a9a36dd4fab0d3a36b8de7b593bf935e13df85a380395b2c11ad", size = 98893, upload-time = "2026-10-09T20:31:33.62Z" },
     { url = "https://files.pythonhosted.org/packages/d0/86/a3de309c5e28ee85b314d0e3ba0e0dea6fd361c313322a05e67be4656e1e/multidict-7.1.0-py3-none-any.whl", hash = "sha256:d9ef29cfd98e17085b4f91bba8fa1570bec6787d5c52ce653ed33a58785585d0", size = 28087, upload-time = "2026-10-09T20:31:35.945Z" },
-]
-
-[[package]]
-name = "parth-dl"
-version = "1.2.1"
-source = { registry = "https://pypi.org/simple" }
-sdist = { url = "https://files.pythonhosted.org/packages/34/9c/3526749767ecae11387d5061007106e180ced3637614efab5ac794ed493d/parth_dl-1.2.1.tar.gz", hash = "sha256:77aefb7bf2286ef24da03af7325ec30dd7dbf8f42b680d0db250ab146d693fee", size = 360457, upload-time = "2026-07-25T12:34:11.879Z" }
-wheels = [
-    { url = "https://files.pythonhosted.org/packages/b8/c8/6a074c1cb6b786c5c097b7722d5ec69725ac0eae009b75609655e89752a3/parth_dl-1.2.1-py3-none-any.whl", hash = "sha256:3117e4c7bd6fe7c6f1b668d05c40c303e54fc3992019bf6a40ab13b98434ebff", size = 47146, upload-time = "2026-07-25T12:34:10.061Z" },
 ]
 
 [[package]]

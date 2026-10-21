@@ -7,8 +7,8 @@ from datetime import datetime, timezone
 from urllib.parse import urlsplit
 
 import telebot
+import requests
 import yt_dlp
-from parth_dl import download
 
 
 logging.basicConfig(
@@ -18,6 +18,7 @@ logging.basicConfig(
 logger = logging.getLogger("video_bot")
 
 TELEGRAM_BOT_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN")
+FASTSAVER_API_KEY = os.environ.get("FASTSAVER_API_KEY")
 if not TELEGRAM_BOT_TOKEN:
     raise RuntimeError(
         "Set TELEGRAM_BOT_TOKEN in Replit Secrets before starting the bot."
@@ -26,6 +27,7 @@ if not TELEGRAM_BOT_TOKEN:
 DAILY_LIMIT = 3
 MAX_FILE_SIZE = 49 * 1024 * 1024
 DATABASE_PATH = os.environ.get("BOT_DATABASE_PATH", "bot_limits.sqlite3")
+FASTSAVER_API_URL = "https://api.fastsaver.io/v1/fetch"
 USER_AGENT = (
     "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 "
     "(KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36"
@@ -135,8 +137,9 @@ def safe_error_detail(error: Exception) -> str:
         r"\1=[redacted]",
         detail,
     )
-    if TELEGRAM_BOT_TOKEN:
-        detail = detail.replace(TELEGRAM_BOT_TOKEN, "[token redacted]")
+    for secret in (TELEGRAM_BOT_TOKEN, FASTSAVER_API_KEY):
+        if secret:
+            detail = detail.replace(secret, "[secret redacted]")
     detail = detail.replace(os.getcwd(), "[project]")
     detail = re.sub(r"/tmp/telegram-video-[^\s/]+", "[temporary directory]", detail)
     return detail[:1200]
@@ -147,6 +150,140 @@ def update_status(chat_id: int, message_id: int, text: str) -> None:
         bot.edit_message_text(text, chat_id=chat_id, message_id=message_id)
     except Exception:
         logger.warning("Could not update status message in chat %s", chat_id)
+
+
+def get_fastsaver_video_urls(instagram_url: str) -> list[str]:
+    if not FASTSAVER_API_KEY:
+        raise RuntimeError("FASTSAVER_API_KEY is not configured")
+
+    response = requests.get(
+        FASTSAVER_API_URL,
+        params={"url": instagram_url},
+        headers={"X-Api-Key": FASTSAVER_API_KEY},
+        timeout=(10, 30),
+    )
+    if not response.ok:
+        try:
+            error_payload = response.json()
+        except ValueError:
+            error_payload = {}
+        detail = error_payload.get("detail", response.reason)
+        if response.status_code == 401:
+            detail = "Invalid or missing FastSaver API key"
+        raise RuntimeError(
+            f"FastSaver API returned HTTP {response.status_code}: {detail}"
+        )
+
+    try:
+        payload = response.json()
+    except ValueError as error:
+        raise RuntimeError("FastSaver API returned invalid JSON") from error
+
+    if not isinstance(payload, dict):
+        raise RuntimeError("FastSaver API returned an unexpected JSON response")
+    if not payload.get("ok"):
+        detail = payload.get("detail") or "unknown API error"
+        raise RuntimeError(f"FastSaver API error: {detail}")
+
+    if payload.get("type") == "video":
+        candidates = [payload.get("download_url")]
+    elif payload.get("type") == "album":
+        items = payload.get("items")
+        candidates = [
+            item.get("download_url")
+            for item in items or []
+            if isinstance(item, dict) and item.get("type") == "video"
+        ]
+    else:
+        candidates = []
+
+    video_urls = []
+    for candidate in candidates:
+        if not isinstance(candidate, str) or not candidate:
+            continue
+        parsed = urlsplit(candidate)
+        if parsed.scheme != "https" or not parsed.hostname:
+            raise RuntimeError("FastSaver returned an invalid video URL")
+        video_urls.append(candidate)
+
+    if not video_urls:
+        raise RuntimeError("FastSaver response did not contain a video download URL")
+    return video_urls
+
+
+def download_video_to_temp(video_url: str, temp_dir: str) -> str:
+    suffix = os.path.splitext(urlsplit(video_url).path)[1].lower()
+    if suffix not in VIDEO_EXTENSIONS:
+        suffix = ".mp4"
+
+    temp_file = tempfile.NamedTemporaryFile(
+        prefix="fastsaver-",
+        suffix=suffix,
+        dir=temp_dir,
+        delete=False,
+    )
+    filename = temp_file.name
+    total_size = 0
+
+    try:
+        with temp_file, requests.get(
+            video_url,
+            headers={"User-Agent": USER_AGENT},
+            stream=True,
+            timeout=(10, 60),
+        ) as response:
+            response.raise_for_status()
+            content_length = response.headers.get("Content-Length")
+            if content_length and int(content_length) > MAX_FILE_SIZE:
+                raise ValueError("Video is too large to send")
+
+            for chunk in response.iter_content(chunk_size=256 * 1024):
+                if not chunk:
+                    continue
+                total_size += len(chunk)
+                if total_size > MAX_FILE_SIZE:
+                    raise ValueError("Video is too large to send")
+                temp_file.write(chunk)
+
+        if total_size == 0:
+            raise RuntimeError("FastSaver returned an empty video file")
+        return filename
+    except Exception:
+        try:
+            os.remove(filename)
+        except FileNotFoundError:
+            pass
+        raise
+
+
+def send_fastsaver_video(
+    chat_id: int,
+    video_url: str,
+    caption: str | None,
+    temp_dir: str,
+) -> None:
+    try:
+        bot.send_video(
+            chat_id,
+            video_url,
+            caption=caption,
+            supports_streaming=True,
+        )
+        return
+    except Exception as error:
+        logger.warning(
+            "Telegram could not send FastSaver URL directly (%s); uploading locally",
+            type(error).__name__,
+        )
+
+    filename = download_video_to_temp(video_url, temp_dir)
+    with open(filename, "rb") as video:
+        bot.send_video(
+            chat_id,
+            video,
+            caption=caption,
+            supports_streaming=True,
+        )
 
 
 @bot.message_handler(commands=["start"])
@@ -191,22 +328,15 @@ def handle_link(message: telebot.types.Message) -> None:
     try:
         with tempfile.TemporaryDirectory(prefix="telegram-video-") as temp_dir:
             if "instagram.com" in url.lower():
-                result = download(url, output_path=temp_dir)
-                if isinstance(result, (str, os.PathLike)):
-                    downloaded_paths = [os.fspath(result)]
-                elif isinstance(result, list):
-                    downloaded_paths = [os.fspath(path) for path in result]
-                else:
-                    raise RuntimeError("Instagram downloader returned no file paths")
-
-                filenames = [
-                    path
-                    for path in downloaded_paths
-                    if os.path.isfile(path)
-                    and os.path.splitext(path)[1].lower() in VIDEO_EXTENSIONS
-                ]
-                if not filenames:
-                    raise RuntimeError("Instagram link did not produce a video file")
+                video_urls = get_fastsaver_video_urls(url)
+                for index, video_url in enumerate(video_urls):
+                    caption = "Готово! Вот доступное видео." if index == 0 else None
+                    send_fastsaver_video(
+                        message.chat.id,
+                        video_url,
+                        caption,
+                        temp_dir,
+                    )
             else:
                 output_template = os.path.join(temp_dir, "%(id)s.%(ext)s")
                 ydl_options = {
@@ -238,12 +368,10 @@ def handle_link(message: telebot.types.Message) -> None:
                     raise FileNotFoundError("Downloaded video file was not found")
                 filenames = [filename]
 
-            for filename in filenames:
                 if os.path.getsize(filename) > MAX_FILE_SIZE:
                     raise ValueError("Video is too large to send")
 
-            for index, filename in enumerate(filenames):
-                caption = "Готово! Вот доступное видео." if index == 0 else None
+                caption = "Готово! Вот доступное видео."
                 with open(filename, "rb") as video:
                     if filename.lower().endswith(".mp4"):
                         bot.send_video(

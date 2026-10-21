@@ -1,9 +1,12 @@
 # Telegram Video Bot
 
 A Telegram bot that accepts HTTPS video links from Instagram, TikTok, YouTube,
-and VK. Instagram public media is downloaded with `parth-dl`; other supported
+and VK. Instagram links are resolved through the FastSaver API; other supported
 platforms continue to use yt-dlp. The bot allows three successful downloads per
 user per UTC day.
+
+Set `FASTSAVER_API_KEY` in Replit Secrets to use Instagram downloads. FastSaver
+supports public media and may consume API credits per request.
 
 ## Setup
 
