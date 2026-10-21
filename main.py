@@ -1,5 +1,6 @@
 import logging
 import os
+import re
 import sqlite3
 import tempfile
 from datetime import datetime, timezone
@@ -24,6 +25,10 @@ if not TELEGRAM_BOT_TOKEN:
 DAILY_LIMIT = 3
 MAX_FILE_SIZE = 49 * 1024 * 1024
 DATABASE_PATH = os.environ.get("BOT_DATABASE_PATH", "bot_limits.sqlite3")
+USER_AGENT = (
+    "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 "
+    "(KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36"
+)
 ALLOWED_DOMAINS = (
     "instagram.com",
     "tiktok.com",
@@ -116,6 +121,25 @@ def is_supported_video_url(url: str) -> bool:
     )
 
 
+def safe_error_detail(error: Exception) -> str:
+    detail = str(error).strip() or type(error).__name__
+    detail = re.sub(
+        r"(https?://[^\s?#]+)\?[^\s]+",
+        r"\1?[query redacted]",
+        detail,
+    )
+    detail = re.sub(
+        r"(?i)(authorization|password|token)\s*[:=]\s*\S+",
+        r"\1=[redacted]",
+        detail,
+    )
+    if TELEGRAM_BOT_TOKEN:
+        detail = detail.replace(TELEGRAM_BOT_TOKEN, "[token redacted]")
+    detail = detail.replace(os.getcwd(), "[project]")
+    detail = re.sub(r"/tmp/telegram-video-[^\s/]+", "[temporary directory]", detail)
+    return detail[:1200]
+
+
 def update_status(chat_id: int, message_id: int, text: str) -> None:
     try:
         bot.edit_message_text(text, chat_id=chat_id, message_id=message_id)
@@ -174,6 +198,14 @@ def handle_link(message: telebot.types.Message) -> None:
                 "max_filesize": MAX_FILE_SIZE,
                 "socket_timeout": 20,
                 "retries": 1,
+                "extractor_args": {
+                    "youtube": {
+                        "player_client": ["android"],
+                    },
+                },
+                "http_headers": {
+                    "User-Agent": USER_AGENT,
+                },
             }
 
             with yt_dlp.YoutubeDL(ydl_options) as downloader:
@@ -209,16 +241,21 @@ def handle_link(message: telebot.types.Message) -> None:
             "Видео отправлено.",
         )
     except Exception as error:
-        release_daily_slot(user_id, usage_date)
-        logger.warning(
-            "Video request failed for user %s (%s)",
+        try:
+            release_daily_slot(user_id, usage_date)
+        except sqlite3.Error:
+            logger.exception("Could not release daily quota after download failure")
+        detail = safe_error_detail(error)
+        logger.error(
+            "Video request failed for user %s (%s): %s",
             user_id,
             type(error).__name__,
+            detail,
         )
         update_status(
             message.chat.id,
             status_message.message_id,
-            "Не удалось скачать или отправить видео. Проверь ссылку и попробуй позже.",
+            f"Ошибка загрузки ({type(error).__name__}):\n{detail}",
         )
 
 

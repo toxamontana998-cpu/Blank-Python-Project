@@ -187,7 +187,7 @@ dependencies = [
 [package.metadata]
 requires-dist = [
     { name = "pytelegrambotapi", specifier = ">=4.37.1" },
-    { name = "yt-dlp", specifier = ">=2026.8.19" },
+    { name = "yt-dlp", specifier = "==2026.8.19" },
 ]
 
 [[package]]
