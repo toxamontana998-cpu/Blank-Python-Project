@@ -18,7 +18,7 @@ bot = telebot.TeleBot(TELEGRAM_BOT_TOKEN)
 app = Flask(__name__)
 DB_PATH = 'users.db'
 
-# --- БАЗА ДАННЫХ ---
+# --- БАЗА ДАННЫХ ДЛЯ ЛИМИТОВ ---
 def init_db():
     conn = sqlite3.connect(DB_PATH)
     c = conn.cursor()
@@ -38,7 +38,7 @@ def check_limit(user_id):
         count, last_date, is_premium = row
         if is_premium == 1:
             conn.close()
-            return True # Премиум качает безлимит
+            return True 
         if last_date != today:
             c.execute("UPDATE users SET count = 1, last_date = ? WHERE user_id = ?", (today, user_id))
             conn.commit()
@@ -46,7 +46,7 @@ def check_limit(user_id):
             return True
         if count >= 3:
             conn.close()
-            return False # Лимит исчерпан
+            return False 
         c.execute("UPDATE users SET count = count + 1 WHERE user_id = ?", (user_id,))
         conn.commit()
         conn.close()
@@ -61,13 +61,12 @@ def set_premium(user_id):
     conn = sqlite3.connect(DB_PATH)
     c = conn.cursor()
     c.execute("UPDATE users SET is_premium = 1 WHERE user_id = ?", (user_id,))
-    # Если юзера нет, создаем
     if c.rowcount == 0:
         c.execute("INSERT INTO users (user_id, count, last_date, is_premium) VALUES (?, 0, '', 1)", (user_id,))
     conn.commit()
     conn.close()
 
-# --- ВЕБ-СЕРВЕР ДЛЯ RENDER ---
+# --- ВЕБ-СЕРВЕР ДЛЯ RENDER (ЧТОБЫ НЕ ЗАСЫПАЛ) ---
 @app.route('/')
 def home():
     return "Bot is alive!"
@@ -76,17 +75,17 @@ def home():
 @bot.message_handler(commands=['start'])
 def start(message):
     bot.send_message(message.chat.id, 
-                 "Привет! 📥 Я — Контент-качалка.\n\n"
-                 "Просто отправь мне ссылку на видео из Instagram, TikTok, YouTube или VK, "
-                 "и я скачаю его БЕЗ водяных знаков.\n\n"
-                 "🔥 Бесплатно: 3 видео в сутки. Хочешь больше — жми /buy")
+                     "Привет! 📥 Я — Контент-качалка.\n\n"
+                     "Просто отправь мне ссылку на видео из Instagram, TikTok, YouTube или VK, "
+                     "и я скачаю его БЕЗ водяных знаков.\n\n"
+                     "🔥 Бесплатно: 3 видео в сутки. Хочешь больше — жми /buy")
 
 @bot.message_handler(commands=['buy'])
 def buy(message):
     prices = [types.LabeledPrice(label="Премиум подписка", amount=50)]
     bot.send_invoice(
         message.chat.id,
-        title="Безлимит навсегда (тест)",
+        title="Безлимит на 30 дней",
         description="Снимает лимит в 3 видео в день. Качай сколько хочешь!",
         invoice_payload="premium_sub",
         provider_token="", 
@@ -115,17 +114,17 @@ def handle_link(message):
         bot.reply_to(message, "🤷‍♂️ Это не похоже на ссылку. Кидай ссылку на видео!")
         return
 
-    # Проверка лимита
     user_id = message.chat.id
     if not check_limit(user_id):
         bot.reply_to(message, "❌ Твой бесплатный лимит (3 видео) на сегодня исчерпан.\n\nКупи Премиум за 50 ⭐, чтобы качать без ограничений! Жми /buy")
         return
 
     msg = bot.reply_to(message, "⏳ Скачиваю видео, подожди...")
-    filename = f"video_{message.chat.id}.mp4"
+    filename = f"video_{user_id}.mp4"
 
     try:
         if "instagram.com" in url:
+            # Скачивание через FastSaver API (Инстаграм)
             headers = {"X-Api-Key": FASTSAVER_API_KEY}
             res = requests.get(f"https://api.fastsaver.io/v1/fetch?url={url}", headers=headers)
             data = res.json()
@@ -137,7 +136,19 @@ def handle_link(message):
             else:
                 bot.edit_message_text(f"❌ Ошибка FastSaver: {data}", chat_id=message.chat.id, message_id=msg.message_id)
         else:
-            ydl_opts = {'format': 'best[ext=mp4]/best', 'outtmpl': filename, 'quiet': True}
+            # Скачивание через yt-dlp (YouTube, TikTok, VK) с обходом блокировок
+            ydl_opts = {
+                'format': 'best[ext=mp4]/best',
+                'outtmpl': filename,
+                'quiet': True,
+                'no_warnings': True,
+                'nocheckcertificate': True,
+                'extractor_args': {
+                    'youtube': {
+                        'player_client': ['android', 'web_safari', 'tv_embedded']
+                    }
+                }
+            }
             with yt_dlp.YoutubeDL(ydl_opts) as ydl:
                 ydl.download([url])
                 
@@ -148,7 +159,7 @@ def handle_link(message):
             bot.delete_message(message.chat.id, msg.message_id)
 
     except Exception as e:
-        bot.edit_message_text(f"❌ Ошибка: {e}", chat_id=message.chat.id, message_id=msg.message_id)
+        bot.edit_message_text(f"❌ Ошибка: {str(e)[:200]}", chat_id=message.chat.id, message_id=msg.message_id)
         if os.path.exists(filename):
             os.remove(filename)
 
