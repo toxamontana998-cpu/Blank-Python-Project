@@ -1,3 +1,6 @@
+import os
+import threading
+from flask import Flask
 import logging
 import os
 import re
@@ -11,8 +14,11 @@ from urllib.parse import quote, urlsplit
 import telebot
 import requests
 import yt_dlp
+app = Flask(__name__)
 
-
+@app.route('/')
+def home():
+    return "Bot is alive!"
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s %(levelname)s %(name)s: %(message)s",
@@ -474,6 +480,12 @@ def handle_link(message: telebot.types.Message) -> None:
 def main() -> None:
     initialize_database()
     logger.info("Telegram video bot is running")
+def run_flask():
+    port = int(os.environ.get('PORT', 8080))
+    app.run(host='0.0.0.0', port=port)
+
+threading.Thread(target=run_flask).start()
+
     bot.infinity_polling(timeout=20, long_polling_timeout=20)
 
 
