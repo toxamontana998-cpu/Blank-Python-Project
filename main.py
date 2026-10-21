@@ -476,7 +476,28 @@ def handle_link(message: telebot.types.Message) -> None:
             f"Ошибка загрузки ({type(error).__name__}):\n{detail}",
         )
 
+@bot.message_handler(commands=['buy'])
+def buy(message):
+    prices = [telebot.types.LabeledPrice(label="Премиум подписка", amount=50)]
+    bot.send_invoice(
+        message.chat.id,
+        title="Безлимит на 30 дней",
+        description="Снимает лимит в 3 видео в день. Качай сколько хочешь!",
+        invoice_payload="premium_sub",
+        provider_token="", # Для звезд оставляем пустым
+        currency="XTR", # Код валюты Telegram Stars
+        prices=prices,
+        start_parameter="buy_premium"
+    )
 
+@bot.pre_checkout_query_handler(func=lambda query: True)
+def checkout(pre_checkout_query):
+    bot.answer_pre_checkout_query(pre_checkout_query.id, ok=True, error_message="Что-то пошло не так. Попробуй еще раз.")
+
+@bot.message_handler(content_types=['successful_payment'])
+
+def got_payment(message):
+    bot.send_message(message.chat.id, "🎉 Оплата прошла успешно! Теперь у тебя Премиум. Качай видео без ограничений!")
 def main() -> None:
     initialize_database()
     logger.info("Telegram video bot is running...")
