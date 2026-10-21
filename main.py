@@ -6,7 +6,6 @@ from telebot import types
 import requests
 import yt_dlp
 
-# Переменные окружения
 TELEGRAM_BOT_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN")
 FASTSAVER_API_KEY = os.environ.get("FASTSAVER_API_KEY")
 
@@ -16,12 +15,10 @@ if not TELEGRAM_BOT_TOKEN:
 bot = telebot.TeleBot(TELEGRAM_BOT_TOKEN)
 app = Flask(__name__)
 
-# --- ВЕБ-СЕРВЕР ДЛЯ RENDER ---
 @app.route('/')
 def home():
     return "Bot is alive!"
 
-# --- КОМАНДЫ БОТА ---
 @bot.message_handler(commands=['start'])
 def start(message):
     bot.send_message(message.chat.id, 
@@ -51,7 +48,6 @@ def checkout(pre_checkout_query):
 def got_payment(message):
     bot.send_message(message.chat.id, "🎉 Оплата прошла успешно! Теперь у тебя Премиум.")
 
-# --- ОБРАБОТКА ССЫЛОК ---
 @bot.message_handler(content_types=['text'])
 def handle_link(message):
     if message.text.startswith('/'):
@@ -67,7 +63,6 @@ def handle_link(message):
 
     try:
         if "instagram.com" in url:
-            # Скачивание через FastSaver
             headers = {"X-Api-Key": FASTSAVER_API_KEY}
             res = requests.get(f"https://api.fastsaver.io/v1/fetch?url={url}", headers=headers)
             data = res.json()
@@ -79,7 +74,6 @@ def handle_link(message):
             else:
                 bot.edit_message_text(f"❌ Ошибка FastSaver: {data}", chat_id=message.chat.id, message_id=msg.message_id)
         else:
-            # Скачивание через yt-dlp (YouTube, VK, TikTok)
             ydl_opts = {
                 'format': 'best[ext=mp4]/best',
                 'outtmpl': filename,
@@ -99,7 +93,6 @@ def handle_link(message):
         if os.path.exists(filename):
             os.remove(filename)
 
-# --- ЗАПУСК ---
 def main():
     def run_flask():
         port = int(os.environ.get('PORT', 8080))
