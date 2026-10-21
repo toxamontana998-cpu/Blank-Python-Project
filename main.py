@@ -66,7 +66,7 @@ def set_premium(user_id):
     conn.commit()
     conn.close()
 
-# --- ВЕБ-СЕРВЕР ДЛЯ RENDER (ЧТОБЫ НЕ ЗАСЫПАЛ) ---
+# --- ВЕБ-СЕРВЕР ДЛЯ RENDER ---
 @app.route('/')
 def home():
     return "Bot is alive!"
@@ -136,16 +136,15 @@ def handle_link(message):
             else:
                 bot.edit_message_text(f"❌ Ошибка FastSaver: {data}", chat_id=message.chat.id, message_id=msg.message_id)
         else:
-            # Скачивание через yt-dlp (YouTube, TikTok, VK) с обходом блокировок
+            # Скачивание через yt-dlp (YouTube, TikTok, VK)
             ydl_opts = {
                 'format': 'best[ext=mp4]/best',
                 'outtmpl': filename,
                 'quiet': True,
                 'no_warnings': True,
-                'nocheckcertificate': True,
                 'extractor_args': {
                     'youtube': {
-                        'player_client': ['android', 'web_safari', 'tv_embedded']
+                        'player_client': ['android', 'ios']
                     }
                 }
             }
