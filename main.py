@@ -8,6 +8,7 @@ from urllib.parse import urlsplit
 
 import telebot
 import yt_dlp
+from parth_dl import download
 
 
 logging.basicConfig(
@@ -36,6 +37,7 @@ ALLOWED_DOMAINS = (
     "youtu.be",
     "vk.com",
 )
+VIDEO_EXTENSIONS = {".mp4", ".m4v", ".mov", ".webm", ".mkv"}
 
 bot = telebot.TeleBot(TELEGRAM_BOT_TOKEN)
 
@@ -188,52 +190,74 @@ def handle_link(message: telebot.types.Message) -> None:
     status_message = bot.reply_to(message, "Скачиваю видео, подожди…")
     try:
         with tempfile.TemporaryDirectory(prefix="telegram-video-") as temp_dir:
-            output_template = os.path.join(temp_dir, "%(id)s.%(ext)s")
-            ydl_options = {
-                "format": "best[ext=mp4]/best",
-                "outtmpl": output_template,
-                "quiet": True,
-                "no_warnings": True,
-                "noplaylist": True,
-                "max_filesize": MAX_FILE_SIZE,
-                "socket_timeout": 20,
-                "retries": 1,
-                "extractor_args": {
-                    "youtube": {
-                        "player_client": ["android"],
-                    },
-                },
-                "http_headers": {
-                    "User-Agent": USER_AGENT,
-                },
-            }
-
-            with yt_dlp.YoutubeDL(ydl_options) as downloader:
-                info = downloader.extract_info(url, download=True)
-                if not info:
-                    raise RuntimeError("No video information returned")
-                filename = downloader.prepare_filename(info)
-
-            if not os.path.isfile(filename):
-                raise FileNotFoundError("Downloaded video file was not found")
-            if os.path.getsize(filename) > MAX_FILE_SIZE:
-                raise ValueError("Video is too large to send")
-
-            caption = "Готово! Вот доступное видео."
-            with open(filename, "rb") as video:
-                if filename.lower().endswith(".mp4"):
-                    bot.send_video(
-                        message.chat.id,
-                        video,
-                        caption=caption,
-                        supports_streaming=True,
-                    )
+            if "instagram.com" in url.lower():
+                result = download(url, output_path=temp_dir)
+                if isinstance(result, (str, os.PathLike)):
+                    downloaded_paths = [os.fspath(result)]
+                elif isinstance(result, list):
+                    downloaded_paths = [os.fspath(path) for path in result]
                 else:
-                    bot.send_document(
-                        message.chat.id,
-                        video,
-                        caption=caption,
-                    )
+                    raise RuntimeError("Instagram downloader returned no file paths")
+
+                filenames = [
+                    path
+                    for path in downloaded_paths
+                    if os.path.isfile(path)
+                    and os.path.splitext(path)[1].lower() in VIDEO_EXTENSIONS
+                ]
+                if not filenames:
+                    raise RuntimeError("Instagram link did not produce a video file")
+            else:
+                output_template = os.path.join(temp_dir, "%(id)s.%(ext)s")
+                ydl_options = {
+                    "format": "best[ext=mp4]/best",
+                    "outtmpl": output_template,
+                    "quiet": True,
+                    "no_warnings": True,
+                    "noplaylist": True,
+                    "max_filesize": MAX_FILE_SIZE,
+                    "socket_timeout": 20,
+                    "retries": 1,
+                    "extractor_args": {
+                        "youtube": {
+                            "player_client": ["android"],
+                        },
+                    },
+                    "http_headers": {
+                        "User-Agent": USER_AGENT,
+                    },
+                }
+
+                with yt_dlp.YoutubeDL(ydl_options) as downloader:
+                    info = downloader.extract_info(url, download=True)
+                    if not info:
+                        raise RuntimeError("No video information returned")
+                    filename = downloader.prepare_filename(info)
+
+                if not os.path.isfile(filename):
+                    raise FileNotFoundError("Downloaded video file was not found")
+                filenames = [filename]
+
+            for filename in filenames:
+                if os.path.getsize(filename) > MAX_FILE_SIZE:
+                    raise ValueError("Video is too large to send")
+
+            for index, filename in enumerate(filenames):
+                caption = "Готово! Вот доступное видео." if index == 0 else None
+                with open(filename, "rb") as video:
+                    if filename.lower().endswith(".mp4"):
+                        bot.send_video(
+                            message.chat.id,
+                            video,
+                            caption=caption,
+                            supports_streaming=True,
+                        )
+                    else:
+                        bot.send_document(
+                            message.chat.id,
+                            video,
+                            caption=caption,
+                        )
 
         update_status(
             message.chat.id,

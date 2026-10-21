@@ -1,7 +1,9 @@
 # Telegram Video Bot
 
 A Telegram bot that accepts HTTPS video links from Instagram, TikTok, YouTube,
-and VK. It allows three successful downloads per user per UTC day.
+and VK. Instagram public media is downloaded with `parth-dl`; other supported
+platforms continue to use yt-dlp. The bot allows three successful downloads per
+user per UTC day.
 
 ## Setup
 
