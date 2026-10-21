@@ -7,7 +7,6 @@ import requests
 import yt_dlp
 import sqlite3
 from datetime import datetime
-import json
 
 TELEGRAM_BOT_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN")
 FASTSAVER_API_KEY = os.environ.get("FASTSAVER_API_KEY")
@@ -86,7 +85,7 @@ def got_payment(message):
     set_premium(message.chat.id)
     bot.send_message(message.chat.id, "🎉 Оплата прошла! Теперь у тебя Премиум.")
 
-# --- ОБРАБОТКА ---
+# --- ОБРАБОТКА ССЫЛОК ---
 @bot.message_handler(content_types=['text'])
 def handle_link(message):
     if message.text.startswith('/'):
@@ -117,51 +116,36 @@ def handle_link(message):
             else:
                 bot.edit_message_text("❌ Ошибка скачивания из Инстаграма.", chat_id=message.chat.id, message_id=msg.message_id)
         
-        elif "youtube.com" in url or "youtu.be" in url:
-            # ЮТУБ (Обход через Cobalt API)
-            cobalt_api = "https://api.cobalt.tools/api/json"
-            headers = {"Accept": "application/json", "Content-Type": "application/json"}
-            payload = {"url": url}
-            
-            res = requests.post(cobalt_api, json=payload, headers=headers)
-            data = res.json()
-            
-            if data.get("status") == "stream" or data.get("status") == "redirect":
-                video_url = data.get("url")
-                bot.send_video(message.chat.id, video_url, caption="🔥 Держи видео с YouTube!")
-                bot.delete_message(message.chat.id, msg.message_id)
-            else:
-                # Если Cobalt не смог, пробуем через yt-dlp (вдруг пронесет)
-                raise Exception("Cobalt не смог скачать YouTube")
-                
         else:
-            # TIKTOK, VK и остальные (yt-dlp)
-            ydl_opts = {'format': 'best[ext=mp4]/best', 'outtmpl': filename, 'quiet': True, 'no_warnings': True}
+            # ЮТУБ, ТИКТОК, ВК (yt-dlp с маскировкой под iPhone)
+            ydl_opts = {
+                'format': 'best[ext=mp4]/best',
+                'outtmpl': filename,
+                'quiet': True,
+                'no_warnings': True,
+                'user_agent': 'Mozilla/5.0 (iPhone; CPU iPhone OS 17_4 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.4 Mobile/15E148 Safari/604.1',
+                'extractor_args': {
+                    'youtube': {
+                        'player_client': ['ios', 'mweb']
+                    }
+                }
+            }
+            
             with yt_dlp.YoutubeDL(ydl_opts) as ydl:
                 ydl.download([url])
+                
             with open(filename, 'rb') as video:
                 bot.send_video(message.chat.id, video, caption="🔥 Держи видео!")
+                
             os.remove(filename)
             bot.delete_message(message.chat.id, msg.message_id)
 
     except Exception as e:
-        # Если Cobalt сдох, пробуем yt-dlp напоследок
-        try:
-            if "youtube" in url:
-                ydl_opts = {'format': 'best[ext=mp4]/best', 'outtmpl': filename, 'quiet': True}
-                with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-                    ydl.download([url])
-                with open(filename, 'rb') as video:
-                    bot.send_video(message.chat.id, video, caption="🔥 Держи видео!")
-                os.remove(filename)
-                bot.delete_message(message.chat.id, msg.message_id)
-            else:
-                raise e
-        except:
-            bot.edit_message_text(f"❌ Не удалось скачать. Возможно, ссылка приватная или сервис перегружен.", chat_id=message.chat.id, message_id=msg.message_id)
-            if os.path.exists(filename):
-                os.remove(filename)
+        bot.edit_message_text(f"❌ Ошибка: {str(e)[:150]}", chat_id=message.chat.id, message_id=msg.message_id)
+        if os.path.exists(filename):
+            os.remove(filename)
 
+# --- ЗАПУСК ---
 def main():
     init_db()
     def run_flask():
