@@ -351,6 +351,7 @@ def start(message: telebot.types.Message) -> None:
 
 @bot.message_handler(content_types=["text"])
 def handle_link(message: telebot.types.Message) -> None:
+    if message.text.startswith('/'): return
     url = (message.text or "").strip()
     user_id = message.from_user.id if message.from_user else 0
 
