@@ -10,6 +10,7 @@ import sqlite3
 from datetime import datetime
 import traceback
 import subprocess
+import time
 
 # --- ТОКЕНЫ ---
 TELEGRAM_BOT_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN")
@@ -29,12 +30,19 @@ bot = telebot.TeleBot(TELEGRAM_BOT_TOKEN)
 app = Flask(__name__)
 DB_PATH = 'users.db'
 
+user_states = {}
+
 # --- БАЗА ДАННЫХ ---
 def init_db():
     conn = sqlite3.connect(DB_PATH)
     c = conn.cursor()
+    # Таблица пользователей
     c.execute('''CREATE TABLE IF NOT EXISTS users 
                  (user_id INTEGER PRIMARY KEY, count INTEGER, last_date TEXT, premium_level INTEGER, current_mode TEXT)''')
+    # Таблица платежей (для админки)
+    c.execute('''CREATE TABLE IF NOT EXISTS payments 
+                 (id INTEGER PRIMARY KEY AUTOINCREMENT, user_id INTEGER, amount INTEGER, date TEXT)''')
+    
     try:
         c.execute("SELECT current_mode FROM users LIMIT 1")
     except sqlite3.OperationalError:
@@ -77,6 +85,7 @@ def check_limit(user_id, action_type='video'):
         if level == 1 and action_type == 'video': 
             conn.close()
             return True
+            
         if last_date != today:
             c.execute("UPDATE users SET count = 1, last_date = ? WHERE user_id = ?", (today, user_id))
             conn.commit()
@@ -130,6 +139,73 @@ def start(message):
             "🔥 Бесплатно: 3 видео в сутки.")
     bot.send_message(user_id, text, reply_markup=get_main_menu())
 
+# --- АДМИН-ПАНЕЛЬ ---
+@bot.message_handler(commands=['admin'])
+def admin_panel(message):
+    if message.chat.id != ADMIN_ID:
+        return
+    
+    conn = sqlite3.connect(DB_PATH)
+    c = conn.cursor()
+    c.execute("SELECT COUNT(*) FROM users")
+    total_users = c.fetchone()[0]
+    
+    c.execute("SELECT COUNT(*) FROM users WHERE premium_level > 0")
+    total_premium = c.fetchone()[0]
+    
+    c.execute("SELECT SUM(amount) FROM payments")
+    total_stars = c.fetchone()[0] or 0
+    
+    conn.close()
+    
+    markup = types.InlineKeyboardMarkup(row_width=1)
+    btn_broadcast = types.InlineKeyboardButton("📢 Сделать рассылку", callback_data="admin_broadcast")
+    markup.add(btn_broadcast)
+    
+    text = (f"👑 <b>АДМИН-ПАНЕЛЬ</b>\n\n"
+            f"👥 Всего пользователей: <b>{total_users}</b>\n"
+            f"💎 Купили Премиум: <b>{total_premium}</b>\n"
+            f"⭐ Заработано звезд: <b>{total_stars}</b>\n\n"
+            f"Выбери действие:")
+    
+    bot.send_message(message.chat.id, text, reply_markup=markup, parse_mode="HTML")
+
+@bot.callback_query_handler(func=lambda call: call.data == "admin_broadcast")
+def admin_broadcast_start(call):
+    if call.message.chat.id != ADMIN_ID:
+        return
+    user_states[ADMIN_ID] = 'broadcast'
+    bot.send_message(ADMIN_ID, "📝 Отправь мне текст для рассылки (или напиши /cancel для отмены).")
+
+@bot.message_handler(func=lambda message: user_states.get(message.chat.id) == 'broadcast' and message.chat.id == ADMIN_ID)
+def admin_broadcast_send(message):
+    if message.text == '/cancel':
+        user_states[ADMIN_ID] = 'video'
+        bot.send_message(ADMIN_ID, "Рассылка отменена.")
+        return
+        
+    text = message.text
+    user_states[ADMIN_ID] = 'video'
+    
+    conn = sqlite3.connect(DB_PATH)
+    c = conn.cursor()
+    c.execute("SELECT user_id FROM users")
+    users = c.fetchall()
+    conn.close()
+    
+    bot.send_message(ADMIN_ID, f"⏳ Начинаю рассылку на {len(users)} человек...")
+    
+    success = 0
+    for user in users:
+        try:
+            bot.send_message(user[0], text)
+            success += 1
+            time.sleep(0.05) # Задержка, чтобы Телеграм не забанил бота за спам
+        except Exception:
+            pass
+            
+    bot.send_message(ADMIN_ID, f"✅ Рассылка завершена! Доставлено: {success} из {len(users)}.")
+
 # --- КНОПКИ МЕНЮ ---
 @bot.message_handler(func=lambda message: message.text in ["📥 Скачать Видео", "🎬 Вытащить Звук (MP3)", "💎 Купить Премиум", "ℹ️ Помощь", "🔄 Перезапустить"])
 def handle_menu_buttons(message):
@@ -182,9 +258,20 @@ def checkout(pre_checkout_query):
 @bot.message_handler(content_types=['successful_payment'])
 def got_payment(message):
     payload = message.successful_payment.invoice_payload
+    amount = message.successful_payment.total_amount
     level = 1 if payload == "pay_50" else 2
+    
     set_premium(message.chat.id, level)
-    bot.send_message(message.chat.id, f"🎉 Тариф активирован! Приятного пользования.", reply_markup=get_main_menu())
+    
+    # Запись платежа
+    conn = sqlite3.connect(DB_PATH)
+    c = conn.cursor()
+    today = datetime.now().strftime("%Y-%m-%d %H:%M")
+    c.execute("INSERT INTO payments (user_id, amount, date) VALUES (?, ?, ?)", (message.chat.id, amount, today))
+    conn.commit()
+    conn.close()
+    
+    bot.send_message(message.chat.id, "🎉 Тариф активирован! Приятного пользования.", reply_markup=get_main_menu())
 
 # --- СКАЧИВАНИЕ ---
 @bot.message_handler(content_types=['text'])
@@ -223,7 +310,6 @@ def process_download(message, url, action_type):
 
     try:
         if is_insta:
-            # ИНСТАГРАМ (ВСЕГДА ЧЕРЕЗ FASTSAVER - ОН УБИРАЕТ ВОДЯНОЙ ЗНАК)
             headers = {"X-Api-Key": FASTSAVER_API_KEY}
             res = requests.get(f"https://api.fastsaver.io/v1/fetch?url={url}", headers=headers)
             video_url = res.json().get("download_url")
@@ -232,7 +318,6 @@ def process_download(message, url, action_type):
                 if action_type == 'video':
                     bot.send_video(message.chat.id, video_url, caption="🔥 Держи видео!", reply_markup=get_main_menu())
                 else:
-                    # Если нужен звук, качаем видео и вырезаем MP3
                     vid_data = requests.get(video_url).content
                     with open(video_file, 'wb') as f:
                         f.write(vid_data)
@@ -240,14 +325,12 @@ def process_download(message, url, action_type):
                     subprocess.run(['ffmpeg', '-i', video_file, '-vn', '-acodec', 'libmp3lame', '-q:a', '2', audio_file, '-y'], check=True)
                     with open(audio_file, 'rb') as audio:
                         bot.send_audio(message.chat.id, audio, caption="🎵 Держи трек!", reply_markup=get_main_menu())
-                    os.remove(video_file)
-                    os.remove(audio_file)
+                    if os.path.exists(video_file): os.remove(video_file)
+                    if os.path.exists(audio_file): os.remove(audio_file)
             else:
                 bot.edit_message_text("❌ Ошибка скачивания (FastSaver).", chat_id=message.chat.id, message_id=msg.message_id)
         
         else:
-            # ТИКТОК И ВК (ЧЕРЕЗ YT-DLP)
-            # Используем специальные форматы, чтобы гарантированно не было водяных знаков
             if action_type == 'audio_extract':
                 ydl_opts = {
                     'format': 'bestaudio/best',
@@ -265,9 +348,8 @@ def process_download(message, url, action_type):
                 
                 with open(audio_file, 'rb') as audio:
                     bot.send_audio(message.chat.id, audio, caption="🎵 Держи трек!", reply_markup=get_main_menu())
-                os.remove(audio_file)
+                if os.path.exists(audio_file): os.remove(audio_file)
             else:
-                # Для видео: bv*+ba/b гарантирует лучшее качество без логотипов
                 ydl_opts = {
                     'format': 'bv*+ba/b',
                     'outtmpl': video_file,
@@ -282,7 +364,7 @@ def process_download(message, url, action_type):
                     
                 with open(video_file, 'rb') as video:
                     bot.send_video(message.chat.id, video, caption="🔥 Держи видео!", reply_markup=get_main_menu())
-                os.remove(video_file)
+                if os.path.exists(video_file): os.remove(video_file)
                 
         bot.delete_message(message.chat.id, msg.message_id)
 
