@@ -8,14 +8,12 @@ import yt_dlp
 import sqlite3
 from datetime import datetime
 
-# --- ТОКЕНЫ ---
 TELEGRAM_BOT_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN")
 FASTSAVER_API_KEY = os.environ.get("FASTSAVER_API_KEY")
 YOUTUBE_COOKIES = os.environ.get("YOUTUBE_COOKIES")
 
-# --- ТВОЙ ЛИЧНЫЙ ID ---
-# Вставь сюда свои цифры вместо 123456789
-ADMIN_ID = 6385559900  
+# ТВОЙ ID АДМИНА
+ADMIN_ID = 6385559900
 
 if not TELEGRAM_BOT_TOKEN:
     raise RuntimeError("Set TELEGRAM_BOT_TOKEN in Environment Variables")
@@ -28,7 +26,6 @@ bot = telebot.TeleBot(TELEGRAM_BOT_TOKEN)
 app = Flask(__name__)
 DB_PATH = 'users.db'
 
-# --- БАЗА ДАННЫХ ---
 def init_db():
     conn = sqlite3.connect(DB_PATH)
     c = conn.cursor()
@@ -78,12 +75,10 @@ def set_premium(user_id):
     conn.commit()
     conn.close()
 
-# --- ВЕБ-СЕРВЕР ---
 @app.route('/')
 def home():
     return "Bot is alive!"
 
-# --- КОМАНДЫ БОТА ---
 @bot.message_handler(commands=['start'])
 def start(message):
     bot.send_message(message.chat.id, 
@@ -107,7 +102,6 @@ def got_payment(message):
     set_premium(message.chat.id)
     bot.send_message(message.chat.id, "🎉 Оплата прошла! Теперь у тебя Премиум.")
 
-# --- ОБРАБОТКА ССЫЛОК ---
 @bot.message_handler(content_types=['text'])
 def handle_link(message):
     if message.text.startswith('/'):
@@ -150,6 +144,7 @@ def handle_link(message):
                 'outtmpl': filename,
                 'quiet': True,
                 'no_warnings': True,
+                'impersonate': 'chrome',
             }
             
             if is_youtube and os.path.exists("cookies.txt"):
