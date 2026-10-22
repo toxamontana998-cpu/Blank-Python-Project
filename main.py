@@ -11,9 +11,18 @@ from datetime import datetime
 # --- ТОКЕНЫ ---
 TELEGRAM_BOT_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN")
 FASTSAVER_API_KEY = os.environ.get("FASTSAVER_API_KEY")
+YOUTUBE_COOKIES = os.environ.get("YOUTUBE_COOKIES")
+
+# --- ТВОЙ ЛИЧНЫЙ ID ---
+# Вставь сюда свои цифры вместо 123456789
+ADMIN_ID = 6385559900  
 
 if not TELEGRAM_BOT_TOKEN:
     raise RuntimeError("Set TELEGRAM_BOT_TOKEN in Environment Variables")
+
+if YOUTUBE_COOKIES:
+    with open("cookies.txt", "w", encoding="utf-8") as f:
+        f.write(YOUTUBE_COOKIES)
 
 bot = telebot.TeleBot(TELEGRAM_BOT_TOKEN)
 app = Flask(__name__)
@@ -29,6 +38,9 @@ def init_db():
     conn.close()
 
 def check_limit(user_id):
+    if user_id == ADMIN_ID:
+        return True
+
     conn = sqlite3.connect(DB_PATH)
     c = conn.cursor()
     today = datetime.now().strftime("%Y-%m-%d")
@@ -66,7 +78,7 @@ def set_premium(user_id):
     conn.commit()
     conn.close()
 
-# --- ВЕБ-СЕРВЕР ДЛЯ RENDER ---
+# --- ВЕБ-СЕРВЕР ---
 @app.route('/')
 def home():
     return "Bot is alive!"
@@ -106,12 +118,13 @@ def handle_link(message):
         bot.reply_to(message, "🤷‍♂️ Это не ссылка.")
         return
 
-    # Блокируем YouTube, так как он забанил сервера
-    if "youtube.com" in url or "youtu.be" in url:
-        bot.reply_to(message, "❌ YouTube временно недоступен из-за блокировок.\nНо я отлично качаю видео из Instagram, TikTok и VK!")
+    user_id = message.chat.id
+    is_youtube = "youtube.com" in url or "youtu.be" in url
+
+    if is_youtube and user_id != ADMIN_ID:
+        bot.reply_to(message, "❌ YouTube доступен только создателю бота.\nНо я отлично качаю видео из Instagram, TikTok и VK!")
         return
 
-    user_id = message.chat.id
     if not check_limit(user_id):
         bot.reply_to(message, "❌ Лимит (3 видео) исчерпан.\nКупи Премиум за 50 ⭐! Жми /buy")
         return
@@ -121,7 +134,6 @@ def handle_link(message):
 
     try:
         if "instagram.com" in url:
-            # ИНСТАГРАМ (через FastSaver API)
             headers = {"X-Api-Key": FASTSAVER_API_KEY}
             res = requests.get(f"https://api.fastsaver.io/v1/fetch?url={url}", headers=headers)
             video_url = res.json().get("download_url")
@@ -133,7 +145,6 @@ def handle_link(message):
                 bot.edit_message_text("❌ Ошибка скачивания (FastSaver).", chat_id=message.chat.id, message_id=msg.message_id)
         
         else:
-            # ТИКТОК И ВК (через yt-dlp)
             ydl_opts = {
                 'format': 'best[ext=mp4]/best',
                 'outtmpl': filename,
@@ -141,6 +152,9 @@ def handle_link(message):
                 'no_warnings': True,
             }
             
+            if is_youtube and os.path.exists("cookies.txt"):
+                ydl_opts['cookiefile'] = 'cookies.txt'
+
             with yt_dlp.YoutubeDL(ydl_opts) as ydl:
                 ydl.download([url])
                 
@@ -155,7 +169,6 @@ def handle_link(message):
         if os.path.exists(filename):
             os.remove(filename)
 
-# --- ЗАПУСК ---
 def main():
     init_db()
     def run_flask():
