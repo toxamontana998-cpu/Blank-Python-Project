@@ -28,10 +28,9 @@ bot = telebot.TeleBot(TELEGRAM_BOT_TOKEN)
 app = Flask(__name__)
 DB_PATH = 'users.db'
 
-# Словарь для запоминания действий пользователей (ждет ссылку на видео или аудио)
 user_states = {}
 
-# --- БАЗА ДАННЫХ (0 - бесплатно, 1 - Базовый, 2 - Музыкальный, 3 - Максимум) ---
+# --- БАЗА ДАННЫХ ---
 def init_db():
     conn = sqlite3.connect(DB_PATH)
     c = conn.cursor()
@@ -43,7 +42,6 @@ def init_db():
 def check_limit(user_id, action_type='video'):
     if user_id == ADMIN_ID:
         return True
-        
     conn = sqlite3.connect(DB_PATH)
     c = conn.cursor()
     today = datetime.now().strftime("%Y-%m-%d")
@@ -52,18 +50,16 @@ def check_limit(user_id, action_type='video'):
     
     if row:
         count, last_date, level = row
-        # Проверка премиум-доступа
-        if level == 3: # Максимум
+        if level == 3: 
             conn.close()
             return True
-        if level == 2 and action_type in ['video', 'audio_vk']: # Музыкальный
+        if level == 2 and action_type in ['video', 'audio_vk']: 
             conn.close()
             return True
-        if level == 1 and action_type == 'video': # Базовый
+        if level == 1 and action_type == 'video': 
             conn.close()
             return True
             
-        # Бесплатный доступ
         if last_date != today:
             c.execute("UPDATE users SET count = 1, last_date = ? WHERE user_id = ?", (today, user_id))
             conn.commit()
@@ -91,61 +87,82 @@ def set_premium(user_id, level):
     conn.commit()
     conn.close()
 
-# --- ВЕБ-СЕРВЕР ---
 @app.route('/')
 def home():
     return "Bot is alive!"
 
-# --- ИНТЕРФЕЙС (МЕНЮ) ---
-@bot.message_handler(commands=['start'])
-def start(message):
-    markup = types.InlineKeyboardMarkup(row_width=2)
-    btn_video = types.InlineKeyboardButton("📥 Скачать Видео", callback_data="mode_video")
-    btn_audio_vk = types.InlineKeyboardButton("🎵 Музыка из ВК", callback_data="mode_audio_vk")
-    btn_audio_mp3 = types.InlineKeyboardButton("🎬 Вытащить Звук (MP3)", callback_data="mode_audio_mp3")
-    btn_buy = types.InlineKeyboardButton("💎 Купить Премиум", callback_data="buy_menu")
-    btn_help = types.InlineKeyboardButton("ℹ️ Помощь", callback_data="help_info")
-    markup.add(btn_video, btn_audio_vk, btn_audio_mp3, btn_buy, btn_help)
+# --- ГЛАВНОЕ МЕНЮ (ПОСТОЯННЫЕ КНОПКИ) ---
+def get_main_menu():
+    markup = types.ReplyKeyboardMarkup(resize_keyboard=True, row_width=2)
+    btn_video = types.KeyboardButton("📥 Скачать Видео")
+    btn_audio_vk = types.KeyboardButton("🎵 Музыка из ВК")
+    btn_audio_mp3 = types.KeyboardButton("🎬 Вытащить Звук (MP3)")
+    btn_buy = types.KeyboardButton("💎 Купить Премиум")
+    btn_help = types.KeyboardButton("ℹ️ Помощь")
+    btn_menu = types.KeyboardButton("🔙 Главное меню")
+    markup.add(btn_video, btn_audio_vk, btn_audio_mp3, btn_buy, btn_help, btn_menu)
+    return markup
 
+@bot.message_handler(commands=['start', 'menu'])
+def start(message):
+    user_id = message.chat.id
+    user_states[user_id] = 'video'
     text = ("👋 Привет! Я — Контент-качалка.\n\n"
             "Я умею вытаскивать видео и музыку из:\n"
             "📸 Instagram | 🎵 TikTok | 🔵 VK\n\n"
             "🔥 Бесплатно: 3 видео в сутки.\n"
-            "Выбери действие, а затем просто отправь мне ссылку:")
-    bot.send_message(message.chat.id, text, reply_markup=markup)
+            "Выбери действие на клавиатуре ниже, а затем просто отправь мне ссылку:")
+    bot.send_message(user_id, text, reply_markup=get_main_menu())
 
-@bot.callback_query_handler(func=lambda call: True)
-def callback_inline(call):
-    user_id = call.message.chat.id
-    bot.answer_callback_query(call.id)
+# --- ОБРАБОТКА КНОПОК МЕНЮ ---
+@bot.message_handler(func=lambda message: message.text in ["📥 Скачать Видео", "🎵 Музыка из ВК", "🎬 Вытащить Звук (MP3)", "💎 Купить Премиум", "ℹ️ Помощь", "🔙 Главное меню"])
+def handle_menu_buttons(message):
+    user_id = message.chat.id
     
-    if call.data == "mode_video":
+    if message.text == "🔙 Главное меню":
+        start(message)
+        return
+        
+    inline_markup = types.InlineKeyboardMarkup()
+    btn_back = types.InlineKeyboardButton("🔙 Вернуться в меню", callback_data="back_to_menu")
+    inline_markup.add(btn_back)
+
+    if message.text == "📥 Скачать Видео":
         user_states[user_id] = 'video'
-        bot.send_message(user_id, "📥 **Режим: Скачивание Видео**\n\nОтправь мне ссылку на видео (TikTok, Insta, VK, YouTube), и я скачаю его без логотипов.")
+        bot.send_message(user_id, "📥 <b>Режим: Скачивание Видео</b>\n\nОтправь мне ссылку на видео (TikTok, Insta, VK), и я скачаю его без логотипов.", parse_mode="HTML", reply_markup=inline_markup)
     
-    elif call.data == "mode_audio_vk":
+    elif message.text == "🎵 Музыка из ВК":
         user_states[user_id] = 'audio_vk'
-        bot.send_message(user_id, "🎵 **Режим: Музыка из ВК**\n\nОтправь мне ссылку на трек из ВК (vk.com/audio...), и я скачаю музыку.\n\n⚠️ *Доступно с тарифом Музыкальный (70⭐).*")
+        bot.send_message(user_id, "🎵 <b>Режим: Музыка из ВК</b>\n\nОтправь мне ссылку на трек из ВК, и я скачаю музыку.\n\n⚠️ <i>Доступно с тарифом Музыкальный (70⭐).</i>", parse_mode="HTML", reply_markup=inline_markup)
         
-    elif call.data == "mode_audio_mp3":
+    elif message.text == "🎬 Вытащить Звук (MP3)":
         user_states[user_id] = 'audio_extract'
-        bot.send_message(user_id, "🎬 **Режим: Вытащить Звук**\n\nОтправь мне ссылку на видео, и я вытащу из него MP3.\n\n⚠️ *Доступно с тарифом Максимум (90⭐).*")
+        bot.send_message(user_id, "🎬 <b>Режим: Вытащить Звук</b>\n\nОтправь мне ссылку на видео, и я вытащу из него MP3.\n\n⚠️ <i>Доступно с тарифом Максимум (90⭐).</i>", parse_mode="HTML", reply_markup=inline_markup)
         
-    elif call.data == "help_info":
-        user_states[user_id] = 'video' # сбрасываем в дефолт
-        bot.send_message(user_id, "1. Жми на нужную кнопку.\n2. Кидай ссылку.\n3. Бот отправит файл.\n\nПо вопросам: @da_da_eto_Miha")
+    elif message.text == "ℹ️ Помощь":
+        user_states[user_id] = 'video'
+        bot.send_message(user_id, "1. Жми на кнопку внизу.\n2. Кидай ссылку.\n3. Бот отправит файл.\n\nПо вопросам: @da_da_eto_Miha", reply_markup=inline_markup)
     
-    elif call.data == "buy_menu":
+    elif message.text == "💎 Купить Премиум":
         show_buy_menu(user_id)
 
-# --- ОПЛАТА ---
+@bot.callback_query_handler(func=lambda call: call.data == "back_to_menu")
+def back_to_menu(call):
+    user_id = call.message.chat.id
+    user_states[user_id] = 'video'
+    bot.answer_callback_query(call.id, "Меню обновлено")
+    text = ("👋 Вы в главном меню.\n\n"
+            "Выбери действие на клавиатуре ниже, а затем просто отправь мне ссылку:")
+    bot.send_message(user_id, text, reply_markup=get_main_menu())
+
+# --- ОПЛАТА (ИНЛАЙН-КНОПКИ) ---
 def show_buy_menu(chat_id):
     markup = types.InlineKeyboardMarkup(row_width=1)
     btn_50 = types.InlineKeyboardButton("🥉 Базовый (Видео) - 50 ⭐", callback_data="pay_50")
     btn_70 = types.InlineKeyboardButton("🥈 Музыкальный (+ Музыка ВК) - 70 ⭐", callback_data="pay_70")
     btn_90 = types.InlineKeyboardButton("🥇 Максимум (+ MP3 из видео) - 90 ⭐", callback_data="pay_90")
     markup.add(btn_50, btn_70, btn_90)
-    bot.send_message(chat_id, "💎 **Выбери свой тариф:**", reply_markup=markup, parse_mode="Markdown")
+    bot.send_message(chat_id, "💎 <b>Выбери свой тариф:</b>", reply_markup=markup, parse_mode="HTML")
 
 @bot.callback_query_handler(func=lambda call: call.data.startswith('pay_'))
 def process_payment(call):
@@ -177,13 +194,13 @@ def got_payment(message):
     payload = message.successful_payment.invoice_payload
     if payload == "pay_50":
         set_premium(message.chat.id, 1)
-        bot.send_message(message.chat.id, "🎉 Тариф Базовый активирован! Теперь ты можешь качать видео без ограничений.")
+        bot.send_message(message.chat.id, "🎉 Тариф Базовый активирован! Теперь ты можешь качать видео без ограничений.", reply_markup=get_main_menu())
     elif payload == "pay_70":
         set_premium(message.chat.id, 2)
-        bot.send_message(message.chat.id, "🎉 Тариф Музыкальный активирован! Теперь тебе доступны безлимитные видео и музыка из ВК.")
+        bot.send_message(message.chat.id, "🎉 Тариф Музыкальный активирован! Теперь тебе доступны безлимитные видео и музыка из ВК.", reply_markup=get_main_menu())
     elif payload == "pay_90":
         set_premium(message.chat.id, 3)
-        bot.send_message(message.chat.id, "🎉 Тариф Максимум активирован! Теперь тебе доступно всё: безлимитные видео, музыка ВК и вытаскивание MP3 из видео.")
+        bot.send_message(message.chat.id, "🎉 Тариф Максимум активирован! Теперь тебе доступно всё: безлимитные видео, музыка ВК и вытаскивание MP3 из видео.", reply_markup=get_main_menu())
 
 # --- СКАЧИВАНИЕ ---
 @bot.message_handler(content_types=['text'])
@@ -193,22 +210,17 @@ def handle_link(message):
         
     url = message.text.strip()
     if not url.startswith('http'):
-        bot.reply_to(message, "🤷‍♂️ Это не ссылка. Нажми на кнопку в меню и отправь ссылку.")
+        bot.reply_to(message, "🤷‍♂️ Это не ссылка. Нажми на кнопку в меню и отправь ссылку.", reply_markup=get_main_menu())
         return
 
     user_id = message.chat.id
-    
-    # Получаем текущий режим пользователя (по умолчанию видео)
     action_type = user_states.get(user_id, 'video')
     
-    # Если пользователь кинул ссылку ВК-музыки, но забыл нажать кнопку — сами распознаем
     if "vk.com/audio" in url or "vk.com/music" in url:
         if action_type == 'video': 
             action_type = 'audio_vk'
             
-    # После получения ссылки сбрасываем состояние в дефолт
-    user_states[user_id] = 'video'
-    
+    user_states[user_id] = 'video' # Сброс режима после получения ссылки
     process_download(message, url, action_type)
 
 def process_download(message, url, action_type):
@@ -216,7 +228,7 @@ def process_download(message, url, action_type):
     is_youtube = "youtube.com" in url or "youtu.be" in url
 
     if is_youtube and user_id != ADMIN_ID:
-        bot.reply_to(message, "❌ YouTube доступен только создателю бота.")
+        bot.reply_to(message, "❌ YouTube доступен только создателю бота.", reply_markup=get_main_menu())
         return
 
     if not check_limit(user_id, action_type=action_type):
@@ -234,19 +246,17 @@ def process_download(message, url, action_type):
 
     try:
         if "instagram.com" in url and action_type == 'video':
-            # ИНСТАГРАМ (Только видео через FastSaver)
             headers = {"X-Api-Key": FASTSAVER_API_KEY}
             res = requests.get(f"https://api.fastsaver.io/v1/fetch?url={url}", headers=headers)
             video_url = res.json().get("download_url")
             
             if video_url:
-                bot.send_video(message.chat.id, video_url, caption="🔥 Держи видео!")
+                bot.send_video(message.chat.id, video_url, caption="🔥 Держи видео!", reply_markup=get_main_menu())
                 bot.delete_message(message.chat.id, msg.message_id)
             else:
                 bot.edit_message_text("❌ Ошибка скачивания (FastSaver).", chat_id=message.chat.id, message_id=msg.message_id)
         
         else:
-            # ТИКТОК, ВК, ЮТУБ (через yt-dlp)
             if action_type in ['audio_extract', 'audio_vk']:
                 ydl_opts = {
                     'format': 'bestaudio/best',
@@ -263,12 +273,11 @@ def process_download(message, url, action_type):
                     ydl.download([url])
                 
                 with open(audio_file, 'rb') as audio:
-                    bot.send_audio(message.chat.id, audio, caption="🎵 Держи трек!")
+                    bot.send_audio(message.chat.id, audio, caption="🎵 Держи трек!", reply_markup=get_main_menu())
                 
                 os.remove(audio_file)
                 bot.delete_message(message.chat.id, msg.message_id)
             else:
-                # Видео
                 ydl_opts = {
                     'format': 'best[ext=mp4]/best',
                     'outtmpl': video_file,
@@ -282,7 +291,7 @@ def process_download(message, url, action_type):
                     ydl.download([url])
                     
                 with open(video_file, 'rb') as video:
-                    bot.send_video(message.chat.id, video, caption="🔥 Держи видео!")
+                    bot.send_video(message.chat.id, video, caption="🔥 Держи видео!", reply_markup=get_main_menu())
                     
                 os.remove(video_file)
                 bot.delete_message(message.chat.id, msg.message_id)
@@ -290,7 +299,7 @@ def process_download(message, url, action_type):
     except Exception as e:
         traceback.print_exc()
         error_text = repr(e)
-        bot.edit_message_text(f"❌ Ошибка: {error_text[:200]}", chat_id=message.chat.id, message_id=msg.message_id)
+        bot.edit_message_text(f"❌ Ошибка: {error_text[:200]}", chat_id=message.chat.id, message_id=msg.message_id, reply_markup=get_main_menu())
         if os.path.exists(video_file): os.remove(video_file)
         if os.path.exists(audio_file): os.remove(audio_file)
 
