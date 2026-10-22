@@ -50,16 +50,16 @@ def check_limit(user_id, action_type='video'):
     
     if row:
         count, last_date, level = row
-        if level == 3: 
+        # Уровень 2 (Максимум) - доступно всё
+        if level == 2: 
             conn.close()
             return True
-        if level == 2 and action_type in ['video', 'audio_vk']: 
-            conn.close()
-            return True
+        # Уровень 1 (Базовый) - только видео
         if level == 1 and action_type == 'video': 
             conn.close()
             return True
             
+        # Бесплатный доступ (лимит 3)
         if last_date != today:
             c.execute("UPDATE users SET count = 1, last_date = ? WHERE user_id = ?", (today, user_id))
             conn.commit()
@@ -91,16 +91,15 @@ def set_premium(user_id, level):
 def home():
     return "Bot is alive!"
 
-# --- ГЛАВНОЕ МЕНЮ (ПОСТОЯННЫЕ КНОПКИ) ---
+# --- ГЛАВНОЕ МЕНЮ ---
 def get_main_menu():
     markup = types.ReplyKeyboardMarkup(resize_keyboard=True, row_width=2)
     btn_video = types.KeyboardButton("📥 Скачать Видео")
-    btn_audio_vk = types.KeyboardButton("🎵 Музыка из ВК")
     btn_audio_mp3 = types.KeyboardButton("🎬 Вытащить Звук (MP3)")
     btn_buy = types.KeyboardButton("💎 Купить Премиум")
     btn_help = types.KeyboardButton("ℹ️ Помощь")
     btn_menu = types.KeyboardButton("🔙 Главное меню")
-    markup.add(btn_video, btn_audio_vk, btn_audio_mp3, btn_buy, btn_help, btn_menu)
+    markup.add(btn_video, btn_audio_mp3, btn_buy, btn_help, btn_menu)
     return markup
 
 @bot.message_handler(commands=['start', 'menu'])
@@ -108,14 +107,15 @@ def start(message):
     user_id = message.chat.id
     user_states[user_id] = 'video'
     text = ("👋 Привет! Я — Контент-качалка.\n\n"
-            "Я умею вытаскивать видео и музыку из:\n"
+            "Я умею вытаскивать видео из:\n"
             "📸 Instagram | 🎵 TikTok | 🔵 VK\n\n"
+            "А ещё я могу вытаскивать звук (MP3) из любого видео!\n\n"
             "🔥 Бесплатно: 3 видео в сутки.\n"
             "Выбери действие на клавиатуре ниже, а затем просто отправь мне ссылку:")
     bot.send_message(user_id, text, reply_markup=get_main_menu())
 
 # --- ОБРАБОТКА КНОПОК МЕНЮ ---
-@bot.message_handler(func=lambda message: message.text in ["📥 Скачать Видео", "🎵 Музыка из ВК", "🎬 Вытащить Звук (MP3)", "💎 Купить Премиум", "ℹ️ Помощь", "🔙 Главное меню"])
+@bot.message_handler(func=lambda message: message.text in ["📥 Скачать Видео", "🎬 Вытащить Звук (MP3)", "💎 Купить Премиум", "ℹ️ Помощь", "🔙 Главное меню"])
 def handle_menu_buttons(message):
     user_id = message.chat.id
     
@@ -130,14 +130,10 @@ def handle_menu_buttons(message):
     if message.text == "📥 Скачать Видео":
         user_states[user_id] = 'video'
         bot.send_message(user_id, "📥 <b>Режим: Скачивание Видео</b>\n\nОтправь мне ссылку на видео (TikTok, Insta, VK), и я скачаю его без логотипов.", parse_mode="HTML", reply_markup=inline_markup)
-    
-    elif message.text == "🎵 Музыка из ВК":
-        user_states[user_id] = 'audio_vk'
-        bot.send_message(user_id, "🎵 <b>Режим: Музыка из ВК</b>\n\nОтправь мне ссылку на трек из ВК, и я скачаю музыку.\n\n⚠️ <i>Доступно с тарифом Музыкальный (70⭐).</i>", parse_mode="HTML", reply_markup=inline_markup)
         
     elif message.text == "🎬 Вытащить Звук (MP3)":
         user_states[user_id] = 'audio_extract'
-        bot.send_message(user_id, "🎬 <b>Режим: Вытащить Звук</b>\n\nОтправь мне ссылку на видео, и я вытащу из него MP3.\n\n⚠️ <i>Доступно с тарифом Максимум (90⭐).</i>", parse_mode="HTML", reply_markup=inline_markup)
+        bot.send_message(user_id, "🎬 <b>Режим: Вытащить Звук</b>\n\nОтправь мне ссылку на видео, и я вытащу из него MP3.\n\n⚠️ <i>Доступно с тарифом Максимум (75⭐).</i>", parse_mode="HTML", reply_markup=inline_markup)
         
     elif message.text == "ℹ️ Помощь":
         user_states[user_id] = 'video'
@@ -151,27 +147,22 @@ def back_to_menu(call):
     user_id = call.message.chat.id
     user_states[user_id] = 'video'
     bot.answer_callback_query(call.id, "Меню обновлено")
-    text = ("👋 Вы в главном меню.\n\n"
-            "Выбери действие на клавиатуре ниже, а затем просто отправь мне ссылку:")
-    bot.send_message(user_id, text, reply_markup=get_main_menu())
+    bot.send_message(user_id, "👋 Вы в главном меню.\nВыбери действие на клавиатуре ниже:", reply_markup=get_main_menu())
 
-# --- ОПЛАТА (ИНЛАЙН-КНОПКИ) ---
+# --- ОПЛАТА ---
 def show_buy_menu(chat_id):
     markup = types.InlineKeyboardMarkup(row_width=1)
-    btn_50 = types.InlineKeyboardButton("🥉 Базовый (Видео) - 50 ⭐", callback_data="pay_50")
-    btn_70 = types.InlineKeyboardButton("🥈 Музыкальный (+ Музыка ВК) - 70 ⭐", callback_data="pay_70")
-    btn_90 = types.InlineKeyboardButton("🥇 Максимум (+ MP3 из видео) - 90 ⭐", callback_data="pay_90")
-    markup.add(btn_50, btn_70, btn_90)
+    btn_50 = types.InlineKeyboardButton("🥉 Базовый (Безлимит на видео) - 50 ⭐", callback_data="pay_50")
+    btn_75 = types.InlineKeyboardButton("🥇 Максимум (+ Вытаскивание MP3) - 75 ⭐", callback_data="pay_75")
+    markup.add(btn_50, btn_75)
     bot.send_message(chat_id, "💎 <b>Выбери свой тариф:</b>", reply_markup=markup, parse_mode="HTML")
 
 @bot.callback_query_handler(func=lambda call: call.data.startswith('pay_'))
 def process_payment(call):
     amount = 50
     title = "Базовый"
-    if call.data == "pay_70": 
-        amount, title = 70, "Музыкальный"
-    elif call.data == "pay_90": 
-        amount, title = 90, "Максимум"
+    if call.data == "pay_75": 
+        amount, title = 75, "Максимум"
     
     prices = [types.LabeledPrice(label=f"Премиум {title}", amount=amount)]
     bot.send_invoice(
@@ -195,12 +186,9 @@ def got_payment(message):
     if payload == "pay_50":
         set_premium(message.chat.id, 1)
         bot.send_message(message.chat.id, "🎉 Тариф Базовый активирован! Теперь ты можешь качать видео без ограничений.", reply_markup=get_main_menu())
-    elif payload == "pay_70":
+    elif payload == "pay_75":
         set_premium(message.chat.id, 2)
-        bot.send_message(message.chat.id, "🎉 Тариф Музыкальный активирован! Теперь тебе доступны безлимитные видео и музыка из ВК.", reply_markup=get_main_menu())
-    elif payload == "pay_90":
-        set_premium(message.chat.id, 3)
-        bot.send_message(message.chat.id, "🎉 Тариф Максимум активирован! Теперь тебе доступно всё: безлимитные видео, музыка ВК и вытаскивание MP3 из видео.", reply_markup=get_main_menu())
+        bot.send_message(message.chat.id, "🎉 Тариф Максимум активирован! Теперь тебе доступно всё: безлимитные видео и вытаскивание MP3 из видео.", reply_markup=get_main_menu())
 
 # --- СКАЧИВАНИЕ ---
 @bot.message_handler(content_types=['text'])
@@ -216,10 +204,6 @@ def handle_link(message):
     user_id = message.chat.id
     action_type = user_states.get(user_id, 'video')
     
-    if "vk.com/audio" in url or "vk.com/music" in url:
-        if action_type == 'video': 
-            action_type = 'audio_vk'
-            
     user_states[user_id] = 'video' # Сброс режима после получения ссылки
     process_download(message, url, action_type)
 
@@ -234,10 +218,8 @@ def process_download(message, url, action_type):
     if not check_limit(user_id, action_type=action_type):
         if action_type == 'video':
             bot.reply_to(message, "❌ Лимит (3 видео) исчерпан!\nКупи Премиум за 50 ⭐, чтобы качать без ограничений. Жми /buy")
-        elif action_type == 'audio_vk':
-            bot.reply_to(message, "❌ Для скачивания музыки из ВК нужен тариф «Музыкальный» (70 ⭐). Жми /buy")
         elif action_type == 'audio_extract':
-            bot.reply_to(message, "❌ Для вытаскивания MP3 из видео нужен тариф «Максимум» (90 ⭐). Жми /buy")
+            bot.reply_to(message, "❌ Для вытаскивания MP3 из видео нужен тариф «Максимум» (75 ⭐). Жми /buy")
         return
 
     msg = bot.reply_to(message, "⏳ Обрабатываю, подожди...")
@@ -257,7 +239,7 @@ def process_download(message, url, action_type):
                 bot.edit_message_text("❌ Ошибка скачивания (FastSaver).", chat_id=message.chat.id, message_id=msg.message_id)
         
         else:
-            if action_type in ['audio_extract', 'audio_vk']:
+            if action_type == 'audio_extract':
                 ydl_opts = {
                     'format': 'bestaudio/best',
                     'postprocessors': [{
