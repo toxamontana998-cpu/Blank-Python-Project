@@ -152,7 +152,7 @@ def handle_link(message):
                 'outtmpl': filename,
                 'quiet': True,
                 'no_warnings': True,
-                'impersonate': ImpersonateTarget.from_str('chrome110'),
+                'impersonate': ImpersonateTarget.from_str('chrome'), # Теперь просто 'chrome'
             }
             
             if is_youtube and os.path.exists("cookies.txt"):
@@ -168,7 +168,6 @@ def handle_link(message):
             bot.delete_message(message.chat.id, msg.message_id)
 
     except Exception as e:
-        # Показываем реальную ошибку
         traceback.print_exc()
         error_text = repr(e)
         bot.edit_message_text(f"❌ Ошибка: {error_text[:200]}", chat_id=message.chat.id, message_id=msg.message_id)
