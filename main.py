@@ -8,6 +8,7 @@ import yt_dlp
 import sqlite3
 from datetime import datetime
 
+# --- ТОКЕНЫ ---
 TELEGRAM_BOT_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN")
 FASTSAVER_API_KEY = os.environ.get("FASTSAVER_API_KEY")
 
@@ -36,17 +37,25 @@ def check_limit(user_id):
     if row:
         count, last_date, is_premium = row
         if is_premium == 1:
-            conn.close(); return True 
+            conn.close()
+            return True 
         if last_date != today:
             c.execute("UPDATE users SET count = 1, last_date = ? WHERE user_id = ?", (today, user_id))
-            conn.commit(); conn.close(); return True
+            conn.commit()
+            conn.close()
+            return True
         if count >= 3:
-            conn.close(); return False 
+            conn.close()
+            return False 
         c.execute("UPDATE users SET count = count + 1 WHERE user_id = ?", (user_id,))
-        conn.commit(); conn.close(); return True
+        conn.commit()
+        conn.close()
+        return True
     else:
         c.execute("INSERT INTO users (user_id, count, last_date, is_premium) VALUES (?, 1, ?, 0)", (user_id, today))
-        conn.commit(); conn.close(); return True
+        conn.commit()
+        conn.close()
+        return True
 
 def set_premium(user_id):
     conn = sqlite3.connect(DB_PATH)
@@ -54,14 +63,15 @@ def set_premium(user_id):
     c.execute("UPDATE users SET is_premium = 1 WHERE user_id = ?", (user_id,))
     if c.rowcount == 0:
         c.execute("INSERT INTO users (user_id, count, last_date, is_premium) VALUES (?, 0, '', 1)", (user_id,))
-    conn.commit(); conn.close()
+    conn.commit()
+    conn.close()
 
-# --- ВЕБ-СЕРВЕР ---
+# --- ВЕБ-СЕРВЕР ДЛЯ RENDER ---
 @app.route('/')
 def home():
     return "Bot is alive!"
 
-# --- КОМАНДЫ ---
+# --- КОМАНДЫ БОТА ---
 @bot.message_handler(commands=['start'])
 def start(message):
     bot.send_message(message.chat.id, 
@@ -105,30 +115,25 @@ def handle_link(message):
     filename = f"video_{user_id}.mp4"
 
     try:
-        if "instagram.com" in url:
-            # ИНСТАГРАМ (FastSaver)
+        if "instagram.com" in url or "youtube.com" in url or "youtu.be" in url:
+            # ИНСТАГРАМ И ЮТУБ (через FastSaver API)
             headers = {"X-Api-Key": FASTSAVER_API_KEY}
             res = requests.get(f"https://api.fastsaver.io/v1/fetch?url={url}", headers=headers)
             video_url = res.json().get("download_url")
+            
             if video_url:
                 bot.send_video(message.chat.id, video_url, caption="🔥 Держи видео!")
                 bot.delete_message(message.chat.id, msg.message_id)
             else:
-                bot.edit_message_text("❌ Ошибка скачивания из Инстаграма.", chat_id=message.chat.id, message_id=msg.message_id)
+                bot.edit_message_text("❌ Ошибка скачивания (FastSaver).", chat_id=message.chat.id, message_id=msg.message_id)
         
         else:
-            # ЮТУБ, ТИКТОК, ВК (yt-dlp с маскировкой под iPhone)
+            # ТИКТОК И ВК (через yt-dlp)
             ydl_opts = {
                 'format': 'best[ext=mp4]/best',
                 'outtmpl': filename,
                 'quiet': True,
                 'no_warnings': True,
-                'user_agent': 'Mozilla/5.0 (iPhone; CPU iPhone OS 17_4 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.4 Mobile/15E148 Safari/604.1',
-                'extractor_args': {
-                    'youtube': {
-                        'player_client': ['ios', 'mweb']
-                    }
-                }
             }
             
             with yt_dlp.YoutubeDL(ydl_opts) as ydl:
