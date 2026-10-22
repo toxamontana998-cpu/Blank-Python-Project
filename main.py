@@ -50,16 +50,13 @@ def check_limit(user_id, action_type='video'):
     
     if row:
         count, last_date, level = row
-        # Уровень 2 (Максимум) - доступно всё
         if level == 2: 
             conn.close()
             return True
-        # Уровень 1 (Базовый) - только видео
         if level == 1 and action_type == 'video': 
             conn.close()
             return True
             
-        # Бесплатный доступ (лимит 3)
         if last_date != today:
             c.execute("UPDATE users SET count = 1, last_date = ? WHERE user_id = ?", (today, user_id))
             conn.commit()
@@ -98,8 +95,8 @@ def get_main_menu():
     btn_audio_mp3 = types.KeyboardButton("🎬 Вытащить Звук (MP3)")
     btn_buy = types.KeyboardButton("💎 Купить Премиум")
     btn_help = types.KeyboardButton("ℹ️ Помощь")
-    btn_menu = types.KeyboardButton("🔙 Главное меню")
-    markup.add(btn_video, btn_audio_mp3, btn_buy, btn_help, btn_menu)
+    btn_restart = types.KeyboardButton("🔄 Перезапустить")
+    markup.add(btn_video, btn_audio_mp3, btn_buy, btn_help, btn_restart)
     return markup
 
 @bot.message_handler(commands=['start', 'menu'])
@@ -115,11 +112,12 @@ def start(message):
     bot.send_message(user_id, text, reply_markup=get_main_menu())
 
 # --- ОБРАБОТКА КНОПОК МЕНЮ ---
-@bot.message_handler(func=lambda message: message.text in ["📥 Скачать Видео", "🎬 Вытащить Звук (MP3)", "💎 Купить Премиум", "ℹ️ Помощь", "🔙 Главное меню"])
+@bot.message_handler(func=lambda message: message.text in ["📥 Скачать Видео", "🎬 Вытащить Звук (MP3)", "💎 Купить Премиум", "ℹ️ Помощь", "🔄 Перезапустить"])
 def handle_menu_buttons(message):
     user_id = message.chat.id
     
-    if message.text == "🔙 Главное меню":
+    # Если нажата кнопка Перезапустить - просто вызываем функцию старта заново
+    if message.text == "🔄 Перезапустить":
         start(message)
         return
         
@@ -152,7 +150,8 @@ def back_to_menu(call):
 # --- ОПЛАТА ---
 def show_buy_menu(chat_id):
     markup = types.InlineKeyboardMarkup(row_width=1)
-    btn_50 = types.InlineKeyboardButton("🥉 Базовый (Безлимит на видео) - 50 ⭐", callback_data="pay_50")
+    # Исправлена медалька на серебряную 🥈
+    btn_50 = types.InlineKeyboardButton("🥈 Базовый (Безлимит на видео) - 50 ⭐", callback_data="pay_50")
     btn_75 = types.InlineKeyboardButton("🥇 Максимум (+ Вытаскивание MP3) - 75 ⭐", callback_data="pay_75")
     markup.add(btn_50, btn_75)
     bot.send_message(chat_id, "💎 <b>Выбери свой тариф:</b>", reply_markup=markup, parse_mode="HTML")
@@ -204,7 +203,7 @@ def handle_link(message):
     user_id = message.chat.id
     action_type = user_states.get(user_id, 'video')
     
-    user_states[user_id] = 'video' # Сброс режима после получения ссылки
+    user_states[user_id] = 'video'
     process_download(message, url, action_type)
 
 def process_download(message, url, action_type):
