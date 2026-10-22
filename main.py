@@ -7,12 +7,12 @@ import requests
 import yt_dlp
 import sqlite3
 from datetime import datetime
+import traceback
 
 TELEGRAM_BOT_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN")
 FASTSAVER_API_KEY = os.environ.get("FASTSAVER_API_KEY")
 YOUTUBE_COOKIES = os.environ.get("YOUTUBE_COOKIES")
 
-# ТВОЙ ID АДМИНА
 ADMIN_ID = 6385559900
 
 if not TELEGRAM_BOT_TOKEN:
@@ -37,7 +37,6 @@ def init_db():
 def check_limit(user_id):
     if user_id == ADMIN_ID:
         return True
-
     conn = sqlite3.connect(DB_PATH)
     c = conn.cursor()
     today = datetime.now().strftime("%Y-%m-%d")
@@ -160,7 +159,10 @@ def handle_link(message):
             bot.delete_message(message.chat.id, msg.message_id)
 
     except Exception as e:
-        bot.edit_message_text(f"❌ Ошибка: {str(e)[:150]}", chat_id=message.chat.id, message_id=msg.message_id)
+        # Выводим полную ошибку в логи Render и в Телеграм
+        traceback.print_exc()
+        error_text = repr(e) # repr показывает тип ошибки, даже если текст пустой
+        bot.edit_message_text(f"❌ Ошибка: {error_text[:200]}", chat_id=message.chat.id, message_id=msg.message_id)
         if os.path.exists(filename):
             os.remove(filename)
 
