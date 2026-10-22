@@ -2,3 +2,4 @@ pyTelegramBotAPI
 yt-dlp[default]
 requests
 Flask
+curl_cffi
