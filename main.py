@@ -76,7 +76,7 @@ def home():
 def start(message):
     bot.send_message(message.chat.id, 
                      "Привет! 📥 Я — Контент-качалка.\n\n"
-                     "Просто отправь мне ссылку на видео из Instagram, TikTok, YouTube или VK, "
+                     "Просто отправь мне ссылку на видео из Instagram, TikTok или VK, "
                      "и я скачаю его БЕЗ водяных знаков.\n\n"
                      "🔥 Бесплатно: 3 видео в сутки. Хочешь больше — жми /buy")
 
@@ -106,6 +106,11 @@ def handle_link(message):
         bot.reply_to(message, "🤷‍♂️ Это не ссылка.")
         return
 
+    # Блокируем YouTube, так как он забанил сервера
+    if "youtube.com" in url or "youtu.be" in url:
+        bot.reply_to(message, "❌ YouTube временно недоступен из-за блокировок.\nНо я отлично качаю видео из Instagram, TikTok и VK!")
+        return
+
     user_id = message.chat.id
     if not check_limit(user_id):
         bot.reply_to(message, "❌ Лимит (3 видео) исчерпан.\nКупи Премиум за 50 ⭐! Жми /buy")
@@ -115,8 +120,8 @@ def handle_link(message):
     filename = f"video_{user_id}.mp4"
 
     try:
-        if "instagram.com" in url or "youtube.com" in url or "youtu.be" in url:
-            # ИНСТАГРАМ И ЮТУБ (через FastSaver API)
+        if "instagram.com" in url:
+            # ИНСТАГРАМ (через FastSaver API)
             headers = {"X-Api-Key": FASTSAVER_API_KEY}
             res = requests.get(f"https://api.fastsaver.io/v1/fetch?url={url}", headers=headers)
             video_url = res.json().get("download_url")
