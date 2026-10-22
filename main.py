@@ -5,14 +5,17 @@ import telebot
 from telebot import types
 import requests
 import yt_dlp
+from yt_dlp.networking.impersonate import ImpersonateTarget
 import sqlite3
 from datetime import datetime
 import traceback
 
+# --- ТОКЕНЫ ---
 TELEGRAM_BOT_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN")
 FASTSAVER_API_KEY = os.environ.get("FASTSAVER_API_KEY")
 YOUTUBE_COOKIES = os.environ.get("YOUTUBE_COOKIES")
 
+# ТВОЙ ID АДМИНА
 ADMIN_ID = 6385559900
 
 if not TELEGRAM_BOT_TOKEN:
@@ -26,6 +29,7 @@ bot = telebot.TeleBot(TELEGRAM_BOT_TOKEN)
 app = Flask(__name__)
 DB_PATH = 'users.db'
 
+# --- БАЗА ДАННЫХ ---
 def init_db():
     conn = sqlite3.connect(DB_PATH)
     c = conn.cursor()
@@ -74,10 +78,12 @@ def set_premium(user_id):
     conn.commit()
     conn.close()
 
+# --- ВЕБ-СЕРВЕР ---
 @app.route('/')
 def home():
     return "Bot is alive!"
 
+# --- КОМАНДЫ ---
 @bot.message_handler(commands=['start'])
 def start(message):
     bot.send_message(message.chat.id, 
@@ -101,6 +107,7 @@ def got_payment(message):
     set_premium(message.chat.id)
     bot.send_message(message.chat.id, "🎉 Оплата прошла! Теперь у тебя Премиум.")
 
+# --- ОБРАБОТКА ССЫЛОК ---
 @bot.message_handler(content_types=['text'])
 def handle_link(message):
     if message.text.startswith('/'):
@@ -127,6 +134,7 @@ def handle_link(message):
 
     try:
         if "instagram.com" in url:
+            # Инстаграм (FastSaver)
             headers = {"X-Api-Key": FASTSAVER_API_KEY}
             res = requests.get(f"https://api.fastsaver.io/v1/fetch?url={url}", headers=headers)
             video_url = res.json().get("download_url")
@@ -138,12 +146,13 @@ def handle_link(message):
                 bot.edit_message_text("❌ Ошибка скачивания (FastSaver).", chat_id=message.chat.id, message_id=msg.message_id)
         
         else:
+            # TikTok, VK и YouTube (для админа) через yt-dlp с маскировкой
             ydl_opts = {
                 'format': 'best[ext=mp4]/best',
                 'outtmpl': filename,
                 'quiet': True,
                 'no_warnings': True,
-                'impersonate': 'chrome',
+                'impersonate': ImpersonateTarget.from_str('chrome110'),
             }
             
             if is_youtube and os.path.exists("cookies.txt"):
@@ -159,9 +168,9 @@ def handle_link(message):
             bot.delete_message(message.chat.id, msg.message_id)
 
     except Exception as e:
-        # Выводим полную ошибку в логи Render и в Телеграм
+        # Показываем реальную ошибку
         traceback.print_exc()
-        error_text = repr(e) # repr показывает тип ошибки, даже если текст пустой
+        error_text = repr(e)
         bot.edit_message_text(f"❌ Ошибка: {error_text[:200]}", chat_id=message.chat.id, message_id=msg.message_id)
         if os.path.exists(filename):
             os.remove(filename)
