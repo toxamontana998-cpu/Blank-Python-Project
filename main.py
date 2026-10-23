@@ -15,7 +15,7 @@ from telebot import types
 from pydub import AudioSegment
 from http.server import BaseHTTPRequestHandler, HTTPServer
 
-# --- FFMPEG для pydub (Render free tier: системного нет, качаем статический) ---
+# --- FFMPEG для pydub (Render free tier) ---
 try:
     from static_ffmpeg import run as static_ffmpeg_run
     _ffmpeg_exe, _ffprobe_exe = static_ffmpeg_run.get_or_fetch_platform_executables_else_raise()
@@ -33,10 +33,13 @@ ADMIN_ID = 6385559900
 if not TELEGRAM_BOT_TOKEN: raise RuntimeError("НЕТ ТОКЕНА БОТА")
 if not GEMINI_API_KEY: raise RuntimeError("НЕТ КЛЮЧА GEMINI")
 
-# --- ИИ (Таймаут 60 сек) ---
+# --- ИИ (СТАБИЛЬНАЯ ВЕРСИЯ API v1 + ТАЙМАУТ) ---
 client = genai.Client(
     api_key=GEMINI_API_KEY,
-    http_options=genai_types.HttpOptions(timeout=60000)
+    http_options=genai_types.HttpOptions(
+        api_version='v1',  # <--- ГЛАВНОЕ ИСПРАВЛЕНИЕ: принудительно v1
+        timeout=60000
+    )
 )
 
 AI_PERSONA = (
@@ -84,7 +87,7 @@ async def synthesize_speech(text):
     return await asyncio.wait_for(_inner(), timeout=60)
 
 def convert_mp3_to_ogg_opus(mp3_data: bytes) -> io.BytesIO:
-    """Конвертирует MP3 байты в OGG/OPUS (формат для голосовых кружочков)."""
+    """Конвертирует MP3 байты в OGG/OPUS (формат для голосовых кружочков Telegram)."""
     mp3_io = io.BytesIO(mp3_data)
     audio = AudioSegment.from_file(mp3_io, format="mp3")
     ogg_io = io.BytesIO()
@@ -154,11 +157,8 @@ def handle_voice(message):
         display_text = reply_text if len(reply_text) <= 3500 else reply_text[:3500] + "..."
         bot.edit_message_text(f"📜 <b>Ответ:</b>\n\n{html.escape(display_text)}", chat_id=message.chat.id, message_id=msg.message_id, parse_mode="HTML")
         
-        # Ограничиваем озвучку 800 символами (защита памяти Render)
         voice_text = reply_text if len(reply_text) <= 800 else reply_text[:800] + "..."
         mp3_data = asyncio.run(synthesize_speech(voice_text))
-        
-        # Конвертируем в OGG/OPUS и отправляем как кружочек
         ogg_io = convert_mp3_to_ogg_opus(mp3_data)
         bot.send_voice(message.chat.id, ogg_io, caption="🕊️ Слушаюсь, государь!")
         
@@ -181,11 +181,8 @@ def process_ai_question(message):
         display_text = reply_text if len(reply_text) <= 3500 else reply_text[:3500] + "..."
         bot.edit_message_text(html.escape(display_text), chat_id=message.chat.id, message_id=msg.message_id, parse_mode="HTML", reply_markup=get_main_menu())
         
-        # Ограничиваем озвучку 800 символами
         voice_text = reply_text if len(reply_text) <= 800 else reply_text[:800] + "..."
         mp3_data = asyncio.run(synthesize_speech(voice_text))
-        
-        # Отправляем кружочек
         ogg_io = convert_mp3_to_ogg_opus(mp3_data)
         bot.send_voice(message.chat.id, ogg_io, caption="🕊️ Слушаюсь, государь!")
         
