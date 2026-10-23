@@ -42,8 +42,8 @@ def deny_access(message):
 def get_main_menu():
     markup = types.ReplyKeyboardMarkup(resize_keyboard=True, row_width=2)
     markup.add(
-        types.KeyboardButton("💰 Пополнить казну"),
-        types.KeyboardButton("📊 Царская сводка"),
+        types.KeyboardButton("🏰 Пополнить казну"),
+        types.KeyboardButton("🕯️ Царская сводка"),
         types.KeyboardButton("📜 Список указов"),
         types.KeyboardButton("📖 Рукописи"),
         types.KeyboardButton("🕊️ Гонцы")
@@ -52,17 +52,17 @@ def get_main_menu():
 
 @bot.message_handler(commands=['start', 'menu'], func=lambda message: message.chat.id == ADMIN_ID)
 def start(message):
-    text = ("🤴 **Да здравствует Царь-батюшка!**\n\n"
+    text = ("👑 **Да здравствует Царь-батюшка!**\n\n"
             "Твой верный цифровой холоп готов к службе. Изволь выбрать, что прикажешь:\n\n"
-            "💰 **Пополнить казну** — записать смену и доходы.\n"
-            "📊 **Царская сводка** — узреть статистику из архивов.\n"
+            "🏰 **Пополнить казну** — записать смену и доходы.\n"
+            "🕯️ **Царская сводка** — узреть статистику из архивов.\n"
             "📜 **Список указов** — добавить задачу (через `/add`).\n"
             "📖 **Рукописи** — прочесть или записать заметку (через `/note`).\n"
             "🕊️ **Гонцы** — поставить напоминание (через `/remind`).")
     bot.send_message(message.chat.id, text, parse_mode="Markdown", reply_markup=get_main_menu())
 
 # --- УЧЕТ КАЗНЫ (СМЕНЫ) ---
-@bot.message_handler(func=lambda message: message.text == "💰 Пополнить казну" and message.chat.id == ADMIN_ID)
+@bot.message_handler(func=lambda message: message.text == "🏰 Пополнить казну" and message.chat.id == ADMIN_ID)
 def quick_shift_calc(message):
     STD_HOURS = 12
     STD_ORDERS = 54
@@ -95,7 +95,7 @@ def process_shift_bonus(call):
         c.execute("INSERT INTO shifts (date, pay) VALUES (?, ?)", (today, base_pay))
         conn.commit(); conn.close()
         bot.answer_callback_query(call.id, "Внесено в летопись!")
-        bot.edit_message_text(f"✅ **Смена записана в летопись.**\n💰 Казна пополнена на {base_pay} ₽, Царь-батюшка.", 
+        bot.edit_message_text(f"✅ **Смена записана в летопись.**\n🏰 Казна пополнена на {base_pay} ₽, Царь-батюшка.", 
                               chat_id=call.message.chat.id, message_id=call.message.message_id, parse_mode="Markdown")
         return
 
@@ -108,11 +108,11 @@ def process_shift_bonus(call):
     total = base_pay + bonus
     text = (f"⚖️ **Учет казны (Обновлено):**\n"
             f"➕ {bonus_text} (+{bonus} ₽)\n\n"
-            f"💰 **ИТОГО В КАЗНУ: {total} ₽**")
+            f"🏰 **ИТОГО В КАЗНУ: {total} ₽**")
     bot.edit_message_text(text, chat_id=call.message.chat.id, message_id=call.message.message_id, parse_mode="Markdown")
 
 # --- СТАТИСТИКА ---
-@bot.message_handler(func=lambda message: message.text == "📊 Царская сводка" and message.chat.id == ADMIN_ID)
+@bot.message_handler(func=lambda message: message.text == "🕯️ Царская сводка" and message.chat.id == ADMIN_ID)
 def show_stats(message):
     conn = sqlite3.connect(DB_PATH)
     c = conn.cursor()
@@ -122,7 +122,7 @@ def show_stats(message):
     active_tasks = c.fetchone()[0]
     conn.close()
     
-    text = (f"📊 **Сводка из царских архивов:**\n\n"
+    text = (f"🕯️ **Сводка из царских архивов:**\n\n"
             f"🏦 Всего в казне: {total_pay or 0} ₽\n"
             f"📅 Отработано смен: {total_shifts or 0}\n"
             f"📜 Указов в ожидании: {active_tasks}\n\n"
