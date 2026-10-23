@@ -1,4 +1,3 @@
-flask
 pyTelegramBotAPI
 google-genai
 edge-tts
