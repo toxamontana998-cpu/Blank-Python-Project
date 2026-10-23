@@ -12,7 +12,18 @@ from google import genai
 from google.genai import types as genai_types
 import telebot
 from telebot import types
+from pydub import AudioSegment
 from http.server import BaseHTTPRequestHandler, HTTPServer
+
+# --- FFMPEG для pydub (Render free tier: системного нет, качаем статический) ---
+try:
+    from static_ffmpeg import run as static_ffmpeg_run
+    _ffmpeg_exe, _ffprobe_exe = static_ffmpeg_run.get_or_fetch_platform_executables_else_raise()
+    AudioSegment.converter = _ffmpeg_exe
+    AudioSegment.ffprobe = _ffprobe_exe
+    print(f"[ffmpeg] using {_ffmpeg_exe}")
+except Exception as e:
+    print(f"[ffmpeg] static-ffmpeg failed: {e}. Falling back to system ffmpeg.")
 
 # --- ТОКЕНЫ ---
 TELEGRAM_BOT_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN")
@@ -22,8 +33,11 @@ ADMIN_ID = 6385559900
 if not TELEGRAM_BOT_TOKEN: raise RuntimeError("НЕТ ТОКЕНА БОТА")
 if not GEMINI_API_KEY: raise RuntimeError("НЕТ КЛЮЧА GEMINI")
 
-# --- ИИ ---
-client = genai.Client(api_key=GEMINI_API_KEY)
+# --- ИИ (Таймаут 60 сек) ---
+client = genai.Client(
+    api_key=GEMINI_API_KEY,
+    http_options=genai_types.HttpOptions(timeout=60000)
+)
 
 AI_PERSONA = (
     "Ты — верный, почтительный и преданный цифровой слуга великого Царя-батюшки "
@@ -53,7 +67,7 @@ AI_PERSONA = (
     "— НИКОГДА не додумывай и не предполагай факты.\n"
     "— Правдивость НЕ отменяет красноречия: признание в незнании — тоже часть твоего искусства служить.\n\n"
     "ЧЕГО НЕЛЬЗЯ:\n"
-    "— НИКОГДА не используй фразы вроде 'целовать ноги', 'пра�� у ног твоих', 'ничтожный раб'.\n"
+    "— НИКОГДА не используй фразы вроде 'целовать ноги', 'прах у ног твоих', 'ничтожный раб'.\n"
     "— КАТЕГОРИЧЕСКИ ЗАПРЕЩЁН современный сленг, английские слова и интернет-термины.\n\n"
     "ОБЯЗАТЕЛЬНО: идеальная пунктуация. Говори ЧЁТКО, ЯСНО, КРАСИВО, ЖИВО, без мямленья."
 )
@@ -68,6 +82,15 @@ async def synthesize_speech(text):
                 buf += chunk["data"]
         return buf
     return await asyncio.wait_for(_inner(), timeout=60)
+
+def convert_mp3_to_ogg_opus(mp3_data: bytes) -> io.BytesIO:
+    """Конвертирует MP3 байты в OGG/OPUS (формат для голосовых кружочков)."""
+    mp3_io = io.BytesIO(mp3_data)
+    audio = AudioSegment.from_file(mp3_io, format="mp3")
+    ogg_io = io.BytesIO()
+    audio.export(ogg_io, format="ogg", codec="libopus")
+    ogg_io.seek(0)
+    return ogg_io
 
 # --- БОТ ---
 bot = telebot.TeleBot(TELEGRAM_BOT_TOKEN)
@@ -122,28 +145,26 @@ def handle_voice(message):
         audio_part = genai_types.Part.from_bytes(data=downloaded, mime_type="audio/ogg")
         
         response = client.models.generate_content(
-            model='gemini-1.5-flash',
+            model='gemini-2.0-flash',
             contents=[audio_part, "Расшифруй речь господина и ответь согласно роли."],
-            config=genai_types.GenerateContentConfig(
-                system_instruction=AI_PERSONA, 
-                temperature=0.5,
-                request_options={"timeout": 15} # ТАЙМАУТ 15 СЕК
-            ),
+            config=genai_types.GenerateContentConfig(system_instruction=AI_PERSONA, temperature=0.5),
         )
         
         reply_text = response.text or "Смилуйся, государь, но я не разобрал."
         display_text = reply_text if len(reply_text) <= 3500 else reply_text[:3500] + "..."
         bot.edit_message_text(f"📜 <b>Ответ:</b>\n\n{html.escape(display_text)}", chat_id=message.chat.id, message_id=msg.message_id, parse_mode="HTML")
         
+        # Ограничиваем озвучку 800 символами (защита памяти Render)
         voice_text = reply_text if len(reply_text) <= 800 else reply_text[:800] + "..."
-        audio_data = asyncio.run(synthesize_speech(voice_text))
-        audio_io = io.BytesIO(audio_data)
-        audio_io.name = "voice.mp3" 
-        bot.send_audio(message.chat.id, audio_io, title="Ответ слуги", caption="🕊️ Слушаюсь, государь!")
+        mp3_data = asyncio.run(synthesize_speech(voice_text))
+        
+        # Конвертируем в OGG/OPUS и отправляем как кружочек
+        ogg_io = convert_mp3_to_ogg_opus(mp3_data)
+        bot.send_voice(message.chat.id, ogg_io, caption="🕊️ Слушаюсь, государь!")
+        
     except Exception as e:
         bot.edit_message_text(f"❌ Ошибка: {html.escape(str(e)[:100])}", chat_id=message.chat.id, message_id=msg.message_id, parse_mode="HTML")
 
-# ОБРАБОТКА ЛЮБОГО ТЕКСТА (включая кнопку "Спросить советника")
 @bot.message_handler(func=lambda m: m.chat.id == ADMIN_ID and m.text and not m.text.startswith('/') and m.text not in [
     "🏰 Пополнить казну", "🧠 Спросить советника", "🕯️ Царская сводка", 
     "📜 Список указов", "📖 Рукописи", "🕊️ Гонцы"
@@ -152,21 +173,25 @@ def process_ai_question(message):
     msg = bot.reply_to(message, "⏳ <i>Ищу ответ...</i>", parse_mode="HTML")
     try:
         response = client.models.generate_content(
-            model='gemini-1.5-flash', 
+            model='gemini-2.0-flash', 
             contents=message.text, 
-            config=genai_types.GenerateContentConfig(
-                system_instruction=AI_PERSONA, 
-                temperature=0.5,
-                request_options={"timeout": 15} # ТАЙМАУТ 15 СЕК
-            )
+            config=genai_types.GenerateContentConfig(system_instruction=AI_PERSONA, temperature=0.5)
         )
         reply_text = response.text or "Смилуйся, государь, но летописи молчат."
         display_text = reply_text if len(reply_text) <= 3500 else reply_text[:3500] + "..."
         bot.edit_message_text(html.escape(display_text), chat_id=message.chat.id, message_id=msg.message_id, parse_mode="HTML", reply_markup=get_main_menu())
+        
+        # Ограничиваем озвучку 800 символами
+        voice_text = reply_text if len(reply_text) <= 800 else reply_text[:800] + "..."
+        mp3_data = asyncio.run(synthesize_speech(voice_text))
+        
+        # Отправляем кружочек
+        ogg_io = convert_mp3_to_ogg_opus(mp3_data)
+        bot.send_voice(message.chat.id, ogg_io, caption="🕊️ Слушаюсь, государь!")
+        
     except Exception as e:
         bot.edit_message_text(f"❌ Ошибка: {html.escape(str(e)[:100])}", chat_id=message.chat.id, message_id=msg.message_id, parse_mode="HTML", reply_markup=get_main_menu())
 
-# Кнопка "Спросить советника" теперь просто дает инструкцию
 @bot.message_handler(func=lambda m: m.text == "🧠 Спросить советника" and m.chat.id == ADMIN_ID)
 def ask_ai_start(message):
     bot.send_message(message.chat.id, "🧠 <b>Изволь задать вопрос!</b>\n\nПросто напиши мне сообщение, и я отвечу.", parse_mode="HTML")
