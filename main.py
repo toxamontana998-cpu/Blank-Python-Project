@@ -123,9 +123,9 @@ def handle_voice(message):
         downloaded = bot.download_file(file_info.file_path)
         audio_part = genai.types.Part.from_bytes(data=downloaded, mime_type="audio/ogg")
         
-        # Исправлена модель на gemini-1.5-flash
+        # ИСПРАВЛЕНО: используем актуальную модель gemini-2.5-flash
         response = client.models.generate_content(
-            model='gemini-1.5-flash',
+            model='gemini-2.5-flash',
             contents=[audio_part, "Расшифруй речь господина и ответь согласно роли."],
             config=genai.types.GenerateContentConfig(system_instruction=AI_PERSONA, temperature=0.5),
         )
@@ -153,9 +153,9 @@ def process_ai_question(message):
         return
     msg = bot.send_message(message.chat.id, "⏳ <i>Ищу ответ...</i>", parse_mode="HTML")
     try:
-        # Исправлена модель на gemini-1.5-flash
+        # ИСПРАВЛЕНО: используем актуальную модель gemini-2.5-flash
         response = client.models.generate_content(
-            model='gemini-1.5-flash', 
+            model='gemini-2.5-flash', 
             contents=message.text, 
             config=genai.types.GenerateContentConfig(system_instruction=AI_PERSONA, temperature=0.5)
         )
