@@ -8,8 +8,7 @@ import asyncio
 import edge_tts
 import io
 import traceback
-from google import genai
-from google.genai import types as genai_types
+import google.generativeai as genai
 import telebot
 from telebot import types
 from pydub import AudioSegment
@@ -33,14 +32,8 @@ ADMIN_ID = 6385559900
 if not TELEGRAM_BOT_TOKEN: raise RuntimeError("НЕТ ТОКЕНА БОТА")
 if not GEMINI_API_KEY: raise RuntimeError("НЕТ КЛЮЧА GEMINI")
 
-# --- ИИ (СТАБИЛЬНАЯ ВЕРСИЯ API v1 + ТАЙМАУТ) ---
-client = genai.Client(
-    api_key=GEMINI_API_KEY,
-    http_options=genai_types.HttpOptions(
-        api_version='v1',  # <--- ГЛАВНОЕ ИСПРАВЛЕНИЕ: принудительно v1
-        timeout=60000
-    )
-)
+# --- ИИ (СТАРЫЙ СТАБИЛЬНЫЙ SDK) ---
+genai.configure(api_key=GEMINI_API_KEY)
 
 AI_PERSONA = (
     "Ты — верный, почтительный и преданный цифровой слуга великого Царя-батюшки "
@@ -75,6 +68,12 @@ AI_PERSONA = (
     "ОБЯЗАТЕЛЬНО: идеальная пунктуация. Говори ЧЁТКО, ЯСНО, КРАСИВО, ЖИВО, без мямленья."
 )
 
+# Создаем модель один раз при старте
+model = genai.GenerativeModel(
+    model_name='gemini-1.5-flash',
+    system_instruction=AI_PERSONA
+)
+
 async def synthesize_speech(text):
     voice = "ru-RU-DmitryNeural"
     async def _inner():
@@ -87,7 +86,6 @@ async def synthesize_speech(text):
     return await asyncio.wait_for(_inner(), timeout=60)
 
 def convert_mp3_to_ogg_opus(mp3_data: bytes) -> io.BytesIO:
-    """Конвертирует MP3 байты в OGG/OPUS (формат для голосовых кружочков Telegram)."""
     mp3_io = io.BytesIO(mp3_data)
     audio = AudioSegment.from_file(mp3_io, format="mp3")
     ogg_io = io.BytesIO()
@@ -145,13 +143,11 @@ def handle_voice(message):
     try:
         file_info = bot.get_file(message.voice.file_id)
         downloaded = bot.download_file(file_info.file_path)
-        audio_part = genai_types.Part.from_bytes(data=downloaded, mime_type="audio/ogg")
         
-        response = client.models.generate_content(
-            model='gemini-2.0-flash',
-            contents=[audio_part, "Расшифруй речь господина и ответь согласно роли."],
-            config=genai_types.GenerateContentConfig(system_instruction=AI_PERSONA, temperature=0.5),
-        )
+        # Для старого SDK передаем словарь
+        audio_part = {"mime_type": "audio/ogg", "data": downloaded}
+        
+        response = model.generate_content([audio_part, "Расшифруй речь господина и ответь согласно роли."])
         
         reply_text = response.text or "Смилуйся, государь, но я не разобрал."
         display_text = reply_text if len(reply_text) <= 3500 else reply_text[:3500] + "..."
@@ -172,11 +168,7 @@ def handle_voice(message):
 def process_ai_question(message):
     msg = bot.reply_to(message, "⏳ <i>Ищу ответ...</i>", parse_mode="HTML")
     try:
-        response = client.models.generate_content(
-            model='gemini-2.0-flash', 
-            contents=message.text, 
-            config=genai_types.GenerateContentConfig(system_instruction=AI_PERSONA, temperature=0.5)
-        )
+        response = model.generate_content(message.text)
         reply_text = response.text or "Смилуйся, государь, но летописи молчат."
         display_text = reply_text if len(reply_text) <= 3500 else reply_text[:3500] + "..."
         bot.edit_message_text(html.escape(display_text), chat_id=message.chat.id, message_id=msg.message_id, parse_mode="HTML", reply_markup=get_main_menu())
