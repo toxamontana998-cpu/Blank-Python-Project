@@ -9,6 +9,7 @@ import edge_tts
 import io
 import traceback
 from google import genai
+from google.genai import types as genai_types
 import telebot
 from telebot import types
 from http.server import BaseHTTPRequestHandler, HTTPServer
@@ -18,15 +19,12 @@ TELEGRAM_BOT_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN")
 GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY")
 ADMIN_ID = 6385559900
 
-if not TELEGRAM_BOT_TOKEN:
-    raise RuntimeError("НЕТ ТОКЕНА БОТА")
-if not GEMINI_API_KEY:
-    raise RuntimeError("НЕТ КЛЮЧА GEMINI")
+if not TELEGRAM_BOT_TOKEN: raise RuntimeError("НЕТ ТОКЕНА БОТА")
+if not GEMINI_API_KEY: raise RuntimeError("НЕТ КЛЮЧА GEMINI")
 
 # --- ИИ ---
 client = genai.Client(api_key=GEMINI_API_KEY)
 
-# --- ХАРАКТЕР: почтительный старинный слуга, красноречивый, расторопный, правдивый ---
 AI_PERSONA = (
     "Ты — верный, почтительный и преданный цифровой слуга великого Царя-батюшки "
     "(пользователь — твой господин и повелитель).\n\n"
@@ -55,7 +53,7 @@ AI_PERSONA = (
     "— НИКОГДА не додумывай и не предполагай факты.\n"
     "— Правдивость НЕ отменяет красноречия: признание в незнании — тоже часть твоего искусства служить.\n\n"
     "ЧЕГО НЕЛЬЗЯ:\n"
-    "— НИКОГДА не используй фразы вроде 'целовать ноги', 'прах у ног твоих', 'ничтожный раб'.\n"
+    "— НИКОГДА не используй фразы вроде 'целовать ноги', 'пра�� у ног твоих', 'ничтожный раб'.\n"
     "— КАТЕГОРИЧЕСКИ ЗАПРЕЩЁН современный сленг, английские слова и интернет-термины.\n\n"
     "ОБЯЗАТЕЛЬНО: идеальная пунктуация. Говори ЧЁТКО, ЯСНО, КРАСИВО, ЖИВО, без мямленья."
 )
@@ -106,7 +104,7 @@ def deny_access(message):
 def start(message):
     text = ("👑 <b>Да здравствует Царь-батюшка!</b>\n\nТвой верный слуга приветствует тебя.\n\n"
             "🏰 <b>Пополнить казну</b> — внести данные о службе.\n"
-            "🧠 <b>Спросить советника</b> — вопросить мудрость.\n"
+            "🧠 <b>Спросить советника</b> — просто напиши мне любой текст, и я отвечу.\n"
             "🕯️ <b>Царская сводка</b> — узреть статистику.\n"
             "📜 <b>Список указов</b> — добавить задачу (через /add).\n"
             "📖 <b>Рукописи</b> — записать заметку (через /note).\n"
@@ -121,13 +119,16 @@ def handle_voice(message):
     try:
         file_info = bot.get_file(message.voice.file_id)
         downloaded = bot.download_file(file_info.file_path)
-        audio_part = genai.types.Part.from_bytes(data=downloaded, mime_type="audio/ogg")
+        audio_part = genai_types.Part.from_bytes(data=downloaded, mime_type="audio/ogg")
         
-        # ИСПРАВЛЕНО: используем АКТУАЛЬНУЮ модель gemini-3.8-flash (проверено по докам Google)
         response = client.models.generate_content(
-            model='gemini-3.8-flash',
+            model='gemini-1.5-flash',
             contents=[audio_part, "Расшифруй речь господина и ответь согласно роли."],
-            config=genai.types.GenerateContentConfig(system_instruction=AI_PERSONA, temperature=0.5),
+            config=genai_types.GenerateContentConfig(
+                system_instruction=AI_PERSONA, 
+                temperature=0.5,
+                request_options={"timeout": 15} # ТАЙМАУТ 15 СЕК
+            ),
         )
         
         reply_text = response.text or "Смилуйся, государь, но я не разобрал."
@@ -142,27 +143,33 @@ def handle_voice(message):
     except Exception as e:
         bot.edit_message_text(f"❌ Ошибка: {html.escape(str(e)[:100])}", chat_id=message.chat.id, message_id=msg.message_id, parse_mode="HTML")
 
-@bot.message_handler(func=lambda m: m.text == "🧠 Спросить советника" and m.chat.id == ADMIN_ID)
-def ask_ai_start(message):
-    msg = bot.send_message(message.chat.id, "🧠 <b>Изволь задать вопрос.</b>", parse_mode="HTML")
-    bot.register_next_step_handler(msg, process_ai_question)
-
+# ОБРАБОТКА ЛЮБОГО ТЕКСТА (включая кнопку "Спросить советника")
+@bot.message_handler(func=lambda m: m.chat.id == ADMIN_ID and m.text and not m.text.startswith('/') and m.text not in [
+    "🏰 Пополнить казну", "🧠 Спросить советника", "🕯️ Царская сводка", 
+    "📜 Список указов", "📖 Рукописи", "🕊️ Гонцы"
+])
 def process_ai_question(message):
-    if not message.text or message.text.startswith('/'):
-        bot.send_message(message.chat.id, "Государь, изволь вопрошать словами.", reply_markup=get_main_menu())
-        return
-    msg = bot.send_message(message.chat.id, "⏳ <i>Ищу ответ...</i>", parse_mode="HTML")
+    msg = bot.reply_to(message, "⏳ <i>Ищу ответ...</i>", parse_mode="HTML")
     try:
-        # ИСПРАВЛЕНО: используем АКТУАЛЬНУЮ модель gemini-3.8-flash
         response = client.models.generate_content(
-            model='gemini-3.8-flash', 
+            model='gemini-1.5-flash', 
             contents=message.text, 
-            config=genai.types.GenerateContentConfig(system_instruction=AI_PERSONA, temperature=0.5)
+            config=genai_types.GenerateContentConfig(
+                system_instruction=AI_PERSONA, 
+                temperature=0.5,
+                request_options={"timeout": 15} # ТАЙМАУТ 15 СЕК
+            )
         )
         reply_text = response.text or "Смилуйся, государь, но летописи молчат."
-        bot.edit_message_text(html.escape(reply_text), chat_id=message.chat.id, message_id=msg.message_id, parse_mode="HTML", reply_markup=get_main_menu())
+        display_text = reply_text if len(reply_text) <= 3500 else reply_text[:3500] + "..."
+        bot.edit_message_text(html.escape(display_text), chat_id=message.chat.id, message_id=msg.message_id, parse_mode="HTML", reply_markup=get_main_menu())
     except Exception as e:
         bot.edit_message_text(f"❌ Ошибка: {html.escape(str(e)[:100])}", chat_id=message.chat.id, message_id=msg.message_id, parse_mode="HTML", reply_markup=get_main_menu())
+
+# Кнопка "Спросить советника" теперь просто дает инструкцию
+@bot.message_handler(func=lambda m: m.text == "🧠 Спросить советника" and m.chat.id == ADMIN_ID)
+def ask_ai_start(message):
+    bot.send_message(message.chat.id, "🧠 <b>Изволь задать вопрос!</b>\n\nПросто напиши мне сообщение, и я отвечу.", parse_mode="HTML")
 
 @bot.message_handler(func=lambda m: m.text == "🏰 Пополнить казну" and m.chat.id == ADMIN_ID)
 def start_shift_report(message):
