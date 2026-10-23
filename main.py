@@ -42,26 +42,27 @@ def deny_access(message):
 def get_main_menu():
     markup = types.ReplyKeyboardMarkup(resize_keyboard=True, row_width=2)
     markup.add(
-        types.KeyboardButton("👑 Смена"),
+        types.KeyboardButton("👑 Внести смену"),
         types.KeyboardButton("📜 Статистика"),
-        types.KeyboardButton("⚔️ Задачи"),
-        types.KeyboardButton("🖋️ Заметки"),
-        types.KeyboardButton("⏳ Напоминания")
+        types.KeyboardButton("✍️ Издать указ"),
+        types.KeyboardButton("📜 Скрижали"),
+        types.KeyboardButton("🕊️ Послать гонца")
     )
     return markup
 
 @bot.message_handler(commands=['start', 'menu'], func=lambda message: message.chat.id == ADMIN_ID)
 def start(message):
-    text = ("👑 Да здравствует Царь-батюшка!\n\n"
-            "Твой цифровой холоп готов к службе. Чего соизволите? Выберите указ на клавиатуре ниже:\n\n"
-            "📜 Письменные приказы:\n"
-            "/add [текст] — издать указ (задачу)\n"
-            "/note [текст] — начертать на скрижалях (заметку)\n"
-            "/remind ГГГГ-ММ-ДД ЧЧ:ММ [текст] — послать гонца (напоминание)")
-    bot.send_message(message.chat.id, text, reply_markup=get_main_menu())
+    text = ("👑 **Да здравствует Царь-батюшка!**\n\n"
+            "Твой верный цифровой холоп готов к службе. Изволь выбрать, что прикажешь сделать:\n\n"
+            "👑 **Внести смену** — записать доход в казну.\n"
+            "📜 **Статистика** — посмотреть сводку из архивов.\n"
+            "✍️ **Издать указ** — добавить задачу (через /add).\n"
+            "📜 **Скрижали** — прочесть или записать заметку (через /note).\n"
+            "🕊️ **Послать гонца** — поставить напоминание (через /remind).")
+    bot.send_message(message.chat.id, text, parse_mode="Markdown", reply_markup=get_main_menu())
 
 # --- ФИЧА 1: УЧЕТ СМЕН ---
-@bot.message_handler(func=lambda message: message.text == "👑 Смена" and message.chat.id == ADMIN_ID)
+@bot.message_handler(func=lambda message: message.text == "👑 Внести смену" and message.chat.id == ADMIN_ID)
 def quick_shift_calc(message):
     STD_HOURS = 12
     STD_ORDERS = 54
@@ -141,7 +142,7 @@ def add_task(message):
     else:
         bot.reply_to(message, "Царь-батюшка, соизвольте написать текст указа после /add")
 
-@bot.message_handler(func=lambda message: message.text == "⚔️ Задачи" and message.chat.id == ADMIN_ID)
+@bot.message_handler(func=lambda message: message.text == "✍️ Издать указ" and message.chat.id == ADMIN_ID)
 def show_tasks(message):
     conn = sqlite3.connect(DB_PATH)
     c = conn.cursor()
@@ -150,7 +151,7 @@ def show_tasks(message):
     conn.close()
     
     if not tasks:
-        bot.send_message(message.chat.id, "⚔️ Список указов пуст, Царь-батюшка. Извольте отдыхать или добавить новый: `/add ...`", parse_mode="Markdown")
+        bot.send_message(message.chat.id, "⚔️ Список указов пуст, Царь-батюшка. Напиши `/add [текст]`, чтобы издать новый.")
         return
         
     markup = types.InlineKeyboardMarkup(row_width=1)
@@ -184,7 +185,7 @@ def add_note(message):
     else:
         bot.reply_to(message, "Царь-батюшка, соизвольте написать текст после /note")
 
-@bot.message_handler(func=lambda message: message.text == "🖋️ Заметки" and message.chat.id == ADMIN_ID)
+@bot.message_handler(func=lambda message: message.text == "📜 Скрижали" and message.chat.id == ADMIN_ID)
 def show_notes(message):
     conn = sqlite3.connect(DB_PATH)
     c = conn.cursor()
@@ -193,7 +194,7 @@ def show_notes(message):
     conn.close()
     
     if not notes:
-        bot.send_message(message.chat.id, "🖋️ Скрижали пусты. Начертать новое: `/note ...`", parse_mode="Markdown")
+        bot.send_message(message.chat.id, "🖋️ Скрижали пусты. Начертать новое: `/note [текст]`", parse_mode="Markdown")
         return
         
     text = "🖋️ **Ваши скрижали:**\n\n"
@@ -218,11 +219,11 @@ def add_reminder(message):
         c = conn.cursor()
         c.execute("INSERT INTO reminders (text, time) VALUES (?, ?)", (text, time_str))
         conn.commit(); conn.close()
-        bot.reply_to(message, f"⏳ Гонец отправлен. В {time_str} я непременно извещу вас, Царь-батюшка.")
+        bot.reply_to(message, f"🕊️ Гонец отправлен. В {time_str} я непременно извещу вас, Царь-батюшка.")
     except ValueError:
         bot.reply_to(message, "❌ Ошибка формата. Соизвольте использовать: ГГГГ-ММ-ДД ЧЧ:ММ")
 
-@bot.message_handler(func=lambda message: message.text == "⏳ Напоминания" and message.chat.id == ADMIN_ID)
+@bot.message_handler(func=lambda message: message.text == "🕊️ Послать гонца" and message.chat.id == ADMIN_ID)
 def show_reminders(message):
     conn = sqlite3.connect(DB_PATH)
     c = conn.cursor()
@@ -231,10 +232,10 @@ def show_reminders(message):
     conn.close()
     
     if not rems:
-        bot.send_message(message.chat.id, "⏳ Гонцов в пути нет.")
+        bot.send_message(message.chat.id, "🕊️ Гонцов в пути нет. Чтобы послать: `/remind [дата] [время] [текст]`")
         return
         
-    text = "⏳ **Ожидающие гонцы:**\n\n"
+    text = "🕊️ **Ожидающие гонцы:**\n\n"
     for r in rems:
         text += f"📅 {r[2]} — {r[1]}\n"
     bot.send_message(message.chat.id, text, parse_mode="Markdown")
