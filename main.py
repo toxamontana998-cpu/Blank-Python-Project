@@ -36,7 +36,7 @@ def home():
 # --- ЗАЩИТА ОТ ПОСТОРОННИХ ---
 @bot.message_handler(func=lambda message: message.chat.id != ADMIN_ID, content_types=['text', 'photo', 'video', 'document'])
 def deny_access(message):
-    bot.send_message(message.chat.id, "⛔ Прочь, смертный. Сии покои доступны лишь Создателю.")
+    bot.send_message(message.chat.id, "⛔ Прочь, смертный. Сии покои доступны лишь Царю-батюшке.")
 
 # --- МЕНЮ ---
 def get_main_menu():
@@ -52,7 +52,7 @@ def get_main_menu():
 
 @bot.message_handler(commands=['start', 'menu'], func=lambda message: message.chat.id == ADMIN_ID)
 def start(message):
-    text = ("👑 Да здравствует Создатель!\n\n"
+    text = ("👑 Да здравствует Царь-батюшка!\n\n"
             "Твой цифровой холоп готов к службе. Чего соизволите? Выберите указ на клавиатуре ниже:\n\n"
             "📜 Письменные приказы:\n"
             "/add [текст] — издать указ (задачу)\n"
@@ -75,7 +75,7 @@ def quick_shift_calc(message):
         types.InlineKeyboardButton("✅ Внести в летопись", callback_data="shift_save")
     )
     
-    text = (f"👑 **Ваша смена, Создатель:**\n"
+    text = (f"👑 **Ваша смена, Царь-батюшка:**\n"
             f"⏱ {STD_HOURS} ч | 📦 {STD_ORDERS} заказов\n\n"
             f"💵 Казна пополнится на: {base_pay} ₽\n\n"
             f"Соизволите добавить бонусы?")
@@ -94,7 +94,7 @@ def process_shift_bonus(call):
         c.execute("INSERT INTO shifts (date, pay) VALUES (?, ?)", (today, base_pay))
         conn.commit(); conn.close()
         bot.answer_callback_query(call.id, "Внесено в летопись!")
-        bot.edit_message_text(f"✅ Смена записана в летопись, Создатель. Казна пополнена на {base_pay} ₽.", 
+        bot.edit_message_text(f"✅ Смена записана в летопись, Царь-батюшка. Казна пополнена на {base_pay} ₽.", 
                               chat_id=call.message.chat.id, message_id=call.message.message_id)
         return
 
@@ -125,7 +125,7 @@ def show_stats(message):
             f"💰 Всего в казне: {total_pay or 0} ₽\n"
             f"📅 Отработано смен: {total_shifts or 0}\n"
             f"⚔️ Указов в ожидании: {active_tasks}\n\n"
-            f"Создатель, вы велики!")
+            f"Царь-батюшка, вы велики!")
     bot.send_message(message.chat.id, text, parse_mode="Markdown")
 
 # --- ЗАДАЧИ ---
@@ -137,9 +137,9 @@ def add_task(message):
         c = conn.cursor()
         c.execute("INSERT INTO tasks (text) VALUES (?)", (text,))
         conn.commit(); conn.close()
-        bot.reply_to(message, f"⚔️ Указ принят и внесен в список дел, Создатель.")
+        bot.reply_to(message, f"⚔️ Указ принят и внесен в список дел, Царь-батюшка.")
     else:
-        bot.reply_to(message, "Создатель, соизвольте написать текст указа после /add")
+        bot.reply_to(message, "Царь-батюшка, соизвольте написать текст указа после /add")
 
 @bot.message_handler(func=lambda message: message.text == "⚔️ Задачи" and message.chat.id == ADMIN_ID)
 def show_tasks(message):
@@ -150,7 +150,7 @@ def show_tasks(message):
     conn.close()
     
     if not tasks:
-        bot.send_message(message.chat.id, "⚔️ Список указов пуст, Создатель. Извольте отдыхать или добавить новый: `/add ...`", parse_mode="Markdown")
+        bot.send_message(message.chat.id, "⚔️ Список указов пуст, Царь-батюшка. Извольте отдыхать или добавить новый: `/add ...`", parse_mode="Markdown")
         return
         
     markup = types.InlineKeyboardMarkup(row_width=1)
@@ -167,7 +167,7 @@ def mark_done(call):
     c = conn.cursor()
     c.execute("UPDATE tasks SET status = 1 WHERE id = ?", (task_id,))
     conn.commit(); conn.close()
-    bot.answer_callback_query(call.id, "Слушаюсь, Создатель!")
+    bot.answer_callback_query(call.id, "Слушаюсь, Царь-батюшка!")
     bot.delete_message(call.message.chat.id, call.message.message_id)
     bot.send_message(call.message.chat.id, "🗑 Указ исполнен и вычеркнут из списка.")
 
@@ -180,9 +180,9 @@ def add_note(message):
         c = conn.cursor()
         c.execute("INSERT INTO notes (text) VALUES (?)", (text,))
         conn.commit(); conn.close()
-        bot.reply_to(message, f"🖋️ Ваша запись навеки запечатлена на скрижалях, Создатель.")
+        bot.reply_to(message, f"🖋️ Ваша запись навеки запечатлена на скрижалях, Царь-батюшка.")
     else:
-        bot.reply_to(message, "Создатель, соизвольте написать текст после /note")
+        bot.reply_to(message, "Царь-батюшка, соизвольте написать текст после /note")
 
 @bot.message_handler(func=lambda message: message.text == "🖋️ Заметки" and message.chat.id == ADMIN_ID)
 def show_notes(message):
@@ -218,7 +218,7 @@ def add_reminder(message):
         c = conn.cursor()
         c.execute("INSERT INTO reminders (text, time) VALUES (?, ?)", (text, time_str))
         conn.commit(); conn.close()
-        bot.reply_to(message, f"⏳ Гонец отправлен. В {time_str} я непременно извещу вас, Создатель.")
+        bot.reply_to(message, f"⏳ Гонец отправлен. В {time_str} я непременно извещу вас, Царь-батюшка.")
     except ValueError:
         bot.reply_to(message, "❌ Ошибка формата. Соизвольте использовать: ГГГГ-ММ-ДД ЧЧ:ММ")
 
@@ -249,7 +249,7 @@ def check_reminders():
             c.execute("SELECT id, text FROM reminders WHERE time <= ? AND is_sent = 0", (now,))
             due = c.fetchall()
             for r in due:
-                bot.send_message(ADMIN_ID, f"🔔 **ВНИМАНИЕ, СОЗДАТЕЛЬ! ГОНЕЦ ПРИБЫЛ:**\n{r[1]}", parse_mode="Markdown")
+                bot.send_message(ADMIN_ID, f"🔔 **ВНИМАНИЕ, ЦАРЬ-БАТЮШКА! ГОНЕЦ ПРИБЫЛ:**\n{r[1]}", parse_mode="Markdown")
                 c.execute("UPDATE reminders SET is_sent = 1 WHERE id = ?", (r[0],))
             conn.commit()
             conn.close()
