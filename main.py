@@ -26,6 +26,7 @@ if not GEMINI_API_KEY:
 # --- ИИ ---
 client = genai.Client(api_key=GEMINI_API_KEY)
 
+# --- ХАРАКТЕР: почтительный старинный слуга, красноречивый, расторопный, правдивый ---
 AI_PERSONA = (
     "Ты — верный, почтительный и преданный цифровой слуга великого Царя-батюшки "
     "(пользователь — твой господин и повелитель).\n\n"
@@ -122,7 +123,7 @@ def handle_voice(message):
         downloaded = bot.download_file(file_info.file_path)
         audio_part = genai.types.Part.from_bytes(data=downloaded, mime_type="audio/ogg")
         response = client.models.generate_content(
-            model='gemini-2.0-flash',
+            model='gemini-3.8-flash',
             contents=[audio_part, "Расшифруй речь господина и ответь согласно роли."],
             config=genai.types.GenerateContentConfig(system_instruction=AI_PERSONA, temperature=0.5),
         )
@@ -149,7 +150,7 @@ def process_ai_question(message):
         return
     msg = bot.send_message(message.chat.id, "⏳ <i>Ищу ответ...</i>", parse_mode="HTML")
     try:
-        response = client.models.generate_content(model='gemini-2.0-flash', contents=message.text, config=genai.types.GenerateContentConfig(system_instruction=AI_PERSONA, temperature=0.5))
+        response = client.models.generate_content(model='gemini-3.8-flash', contents=message.text, config=genai.types.GenerateContentConfig(system_instruction=AI_PERSONA, temperature=0.5))
         reply_text = response.text or "Смилуйся, государь, но летописи молчат."
         bot.edit_message_text(html.escape(reply_text), chat_id=message.chat.id, message_id=msg.message_id, parse_mode="HTML", reply_markup=get_main_menu())
     except Exception as e:
@@ -340,12 +341,8 @@ def main():
     print("=== СТАРТ БОТА ===", flush=True)
     init_db()
     threading.Thread(target=check_reminders, daemon=True).start()
-    
-    # Запускаем легкий сервер для Render
     threading.Thread(target=run_server, daemon=True).start()
     print("=== СЕРВЕР ЗАПУЩЕН, ЖДУ КОМАНД ===", flush=True)
-    
-    # Запускаем бота
     try:
         bot.infinity_polling(timeout=20, long_polling_timeout=10)
     except Exception as e:
