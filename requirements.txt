@@ -4,4 +4,3 @@ google-genai
 edge-tts
 pydub
 static-ffmpeg
-audioop-lts
