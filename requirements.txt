@@ -2,5 +2,3 @@ flask
 pyTelegramBotAPI
 google-genai
 edge-tts
-pydub
-static-ffmpeg
