@@ -123,9 +123,9 @@ def handle_voice(message):
         downloaded = bot.download_file(file_info.file_path)
         audio_part = genai.types.Part.from_bytes(data=downloaded, mime_type="audio/ogg")
         
-        # ИСПРАВЛЕНО: используем актуальную модель gemini-2.5-flash
+        # ИСПРАВЛЕНО: используем АКТУАЛЬНУЮ модель gemini-3.8-flash (проверено по докам Google)
         response = client.models.generate_content(
-            model='gemini-2.5-flash',
+            model='gemini-3.8-flash',
             contents=[audio_part, "Расшифруй речь господина и ответь согласно роли."],
             config=genai.types.GenerateContentConfig(system_instruction=AI_PERSONA, temperature=0.5),
         )
@@ -153,9 +153,9 @@ def process_ai_question(message):
         return
     msg = bot.send_message(message.chat.id, "⏳ <i>Ищу ответ...</i>", parse_mode="HTML")
     try:
-        # ИСПРАВЛЕНО: используем актуальную модель gemini-2.5-flash
+        # ИСПРАВЛЕНО: используем АКТУАЛЬНУЮ модель gemini-3.8-flash
         response = client.models.generate_content(
-            model='gemini-2.5-flash', 
+            model='gemini-3.8-flash', 
             contents=message.text, 
             config=genai.types.GenerateContentConfig(system_instruction=AI_PERSONA, temperature=0.5)
         )
@@ -333,7 +333,7 @@ def check_reminders():
         except: pass
         time.sleep(30)
 
-# --- ЗАГЛУШКА ДЛЯ RENDER (чтобы он не ругался на порт) ---
+# --- ЗАГЛУШКА ДЛЯ RENDER ---
 class DummyServer(BaseHTTPRequestHandler):
     def do_GET(self):
         self.send_response(200)
