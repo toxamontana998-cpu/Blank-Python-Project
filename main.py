@@ -9,19 +9,8 @@ from datetime import datetime
 import time
 import asyncio
 import edge_tts
-from pydub import AudioSegment
 import io
 from google import genai
-
-# --- FFMPEG для pydub (Render free tier: системного нет, качаем статический) ---
-try:
-    from static_ffmpeg import run as static_ffmpeg_run
-    _ffmpeg_exe, _ffprobe_exe = static_ffmpeg_run.get_or_fetch_platform_executables_else_raise()
-    AudioSegment.converter = _ffmpeg_exe
-    AudioSegment.ffprobe = _ffprobe_exe
-    print(f"[ffmpeg] using {_ffmpeg_exe}")
-except Exception as e:
-    print(f"[ffmpeg] static-ffmpeg failed: {e}. Falling back to system ffmpeg.")
 
 # --- ТОКЕНЫ ---
 TELEGRAM_BOT_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN")
@@ -36,7 +25,6 @@ if not GEMINI_API_KEY:
 # --- ИИ ---
 client = genai.Client(api_key=GEMINI_API_KEY)
 
-# --- ХАРАКТЕР: почтительный старинный слуга, красноречивый, расторопный, правдивый ---
 AI_PERSONA = (
     "Ты — верный, почтительный и преданный цифровой слуга великого Царя-батюшки "
     "(пользователь — твой господин и повелитель).\n\n"
@@ -118,7 +106,7 @@ def init_db():
     conn.commit()
     conn.close()
 
-# --- БУДИЛЬНИК (UptimeRobot пингует этот маршрут) ---
+# --- БУДИЛЬНИК ---
 @app.route('/')
 def home():
     return "Personal Assistant is alive!"
@@ -200,13 +188,10 @@ def handle_voice(message):
 
         audio_data = asyncio.run(synthesize_speech(voice_text))
 
-        mp3_io = io.BytesIO(audio_data)
-        audio = AudioSegment.from_file(mp3_io, format="mp3")
-        ogg_io = io.BytesIO()
-        audio.export(ogg_io, format="ogg", codec="libopus")
-        ogg_io.seek(0)
-
-        bot.send_voice(message.chat.id, ogg_io, caption="🕊️ Слушаюсь, государь!")
+        # Отправляем как обычный аудиофайл (без конвертации)
+        audio_io = io.BytesIO(audio_data)
+        audio_io.name = "voice.mp3" 
+        bot.send_audio(message.chat.id, audio_io, title="Ответ слуги", caption="🕊️ Слушаюсь, государь!")
 
     except asyncio.TimeoutError:
         bot.edit_message_text(
@@ -446,4 +431,21 @@ def show_tasks(message):
 
 @bot.callback_query_handler(func=lambda c: c.data.startswith('done_') and c.message.chat.id == ADMIN_ID)
 def mark_done(call):
-    task_id
+    task_id = call.data.split('_')[1]
+    conn = sqlite3.connect(DB_PATH)
+    c = conn.cursor()
+    c.execute("UPDATE tasks SET status = 1 WHERE id = ?", (task_id,))
+    conn.commit()
+    conn.close()
+    bot.answer_callback_query(call.id, "Слушаюсь!")
+    bot.delete_message(call.message.chat.id, call.message.message_id)
+    bot.send_message(call.message.chat.id, "✅ <b>Указ исполнен.</b>", parse_mode="HTML")
+
+# --- РУКОПИСИ ---
+@bot.message_handler(commands=['note'], func=lambda m: m.chat.id == ADMIN_ID)
+def add_note(message):
+    text = message.text.replace('/note', '').strip()
+    if text:
+        conn = sqlite3.connect(DB_PATH)
+        c = conn.cursor()
+        c.execute("I
