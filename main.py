@@ -36,33 +36,33 @@ def home():
 # --- ЗАЩИТА ОТ ПОСТОРОННИХ ---
 @bot.message_handler(func=lambda message: message.chat.id != ADMIN_ID, content_types=['text', 'photo', 'video', 'document'])
 def deny_access(message):
-    bot.send_message(message.chat.id, "⛔ Прочь, смертный. Сии покои доступны лишь Царю-батюшке.")
+    bot.send_message(message.chat.id, "⛔ **Прочь, смертный.** Сии покои доступны лишь Царю-батюшке.")
 
-# --- МЕНЮ ---
+# --- МЕНЮ (КНОПКИ) ---
 def get_main_menu():
     markup = types.ReplyKeyboardMarkup(resize_keyboard=True, row_width=2)
     markup.add(
-        types.KeyboardButton("👑 Внести смену"),
-        types.KeyboardButton("📜 Статистика"),
-        types.KeyboardButton("✍️ Издать указ"),
-        types.KeyboardButton("📜 Скрижали"),
-        types.KeyboardButton("🕊️ Послать гонца")
+        types.KeyboardButton("💰 Пополнить казну"),
+        types.KeyboardButton("📊 Царская сводка"),
+        types.KeyboardButton("📜 Список указов"),
+        types.KeyboardButton("📖 Рукописи"),
+        types.KeyboardButton("🕊️ Гонцы")
     )
     return markup
 
 @bot.message_handler(commands=['start', 'menu'], func=lambda message: message.chat.id == ADMIN_ID)
 def start(message):
-    text = ("👑 **Да здравствует Царь-батюшка!**\n\n"
-            "Твой верный цифровой холоп готов к службе. Изволь выбрать, что прикажешь сделать:\n\n"
-            "👑 **Внести смену** — записать доход в казну.\n"
-            "📜 **Статистика** — посмотреть сводку из архивов.\n"
-            "✍️ **Издать указ** — добавить задачу (через /add).\n"
-            "📜 **Скрижали** — прочесть или записать заметку (через /note).\n"
-            "🕊️ **Послать гонца** — поставить напоминание (через /remind).")
+    text = ("🤴 **Да здравствует Царь-батюшка!**\n\n"
+            "Твой верный цифровой холоп готов к службе. Изволь выбрать, что прикажешь:\n\n"
+            "💰 **Пополнить казну** — записать смену и доходы.\n"
+            "📊 **Царская сводка** — узреть статистику из архивов.\n"
+            "📜 **Список указов** — добавить задачу (через `/add`).\n"
+            "📖 **Рукописи** — прочесть или записать заметку (через `/note`).\n"
+            "🕊️ **Гонцы** — поставить напоминание (через `/remind`).")
     bot.send_message(message.chat.id, text, parse_mode="Markdown", reply_markup=get_main_menu())
 
-# --- ФИЧА 1: УЧЕТ СМЕН ---
-@bot.message_handler(func=lambda message: message.text == "👑 Внести смену" and message.chat.id == ADMIN_ID)
+# --- УЧЕТ КАЗНЫ (СМЕНЫ) ---
+@bot.message_handler(func=lambda message: message.text == "💰 Пополнить казну" and message.chat.id == ADMIN_ID)
 def quick_shift_calc(message):
     STD_HOURS = 12
     STD_ORDERS = 54
@@ -73,12 +73,12 @@ def quick_shift_calc(message):
         types.InlineKeyboardButton("🌧 + Осадки (540р)", callback_data="shift_rain"),
         types.InlineKeyboardButton("📅 + Выходной (180р)", callback_data="shift_weekend"),
         types.InlineKeyboardButton("🔥 + Всё сразу (720р)", callback_data="shift_both"),
-        types.InlineKeyboardButton("✅ Внести в летопись", callback_data="shift_save")
+        types.InlineKeyboardButton("⚖️ Внести в летопись", callback_data="shift_save")
     )
     
-    text = (f"👑 **Ваша смена, Царь-батюшка:**\n"
-            f"⏱ {STD_HOURS} ч | 📦 {STD_ORDERS} заказов\n\n"
-            f"💵 Казна пополнится на: {base_pay} ₽\n\n"
+    text = (f"⚖️ **Учет казны:**\n"
+            f"⏱ Время: {STD_HOURS} ч | 📦 Заказов: {STD_ORDERS}\n\n"
+            f"💵 Базовый доход: {base_pay} ₽\n\n"
             f"Соизволите добавить бонусы?")
     bot.send_message(message.chat.id, text, parse_mode="Markdown", reply_markup=markup)
 
@@ -95,8 +95,8 @@ def process_shift_bonus(call):
         c.execute("INSERT INTO shifts (date, pay) VALUES (?, ?)", (today, base_pay))
         conn.commit(); conn.close()
         bot.answer_callback_query(call.id, "Внесено в летопись!")
-        bot.edit_message_text(f"✅ Смена записана в летопись, Царь-батюшка. Казна пополнена на {base_pay} ₽.", 
-                              chat_id=call.message.chat.id, message_id=call.message.message_id)
+        bot.edit_message_text(f"✅ **Смена записана в летопись.**\n💰 Казна пополнена на {base_pay} ₽, Царь-батюшка.", 
+                              chat_id=call.message.chat.id, message_id=call.message.message_id, parse_mode="Markdown")
         return
 
     bonus = 0
@@ -106,13 +106,13 @@ def process_shift_bonus(call):
     elif call.data == "shift_both": bonus = 720; bonus_text = "🌧+📅"
 
     total = base_pay + bonus
-    text = (f"👑 **Смена (Обновлено):**\n"
+    text = (f"⚖️ **Учет казны (Обновлено):**\n"
             f"➕ {bonus_text} (+{bonus} ₽)\n\n"
             f"💰 **ИТОГО В КАЗНУ: {total} ₽**")
     bot.edit_message_text(text, chat_id=call.message.chat.id, message_id=call.message.message_id, parse_mode="Markdown")
 
 # --- СТАТИСТИКА ---
-@bot.message_handler(func=lambda message: message.text == "📜 Статистика" and message.chat.id == ADMIN_ID)
+@bot.message_handler(func=lambda message: message.text == "📊 Царская сводка" and message.chat.id == ADMIN_ID)
 def show_stats(message):
     conn = sqlite3.connect(DB_PATH)
     c = conn.cursor()
@@ -122,14 +122,14 @@ def show_stats(message):
     active_tasks = c.fetchone()[0]
     conn.close()
     
-    text = (f"📜 **Сводка из царских архивов:**\n\n"
-            f"💰 Всего в казне: {total_pay or 0} ₽\n"
+    text = (f"📊 **Сводка из царских архивов:**\n\n"
+            f"🏦 Всего в казне: {total_pay or 0} ₽\n"
             f"📅 Отработано смен: {total_shifts or 0}\n"
-            f"⚔️ Указов в ожидании: {active_tasks}\n\n"
+            f"📜 Указов в ожидании: {active_tasks}\n\n"
             f"Царь-батюшка, вы велики!")
     bot.send_message(message.chat.id, text, parse_mode="Markdown")
 
-# --- ЗАДАЧИ ---
+# --- УКАЗЫ (ЗАДАЧИ) ---
 @bot.message_handler(commands=['add'], func=lambda message: message.chat.id == ADMIN_ID)
 def add_task(message):
     text = message.text.replace('/add', '').strip()
@@ -138,11 +138,11 @@ def add_task(message):
         c = conn.cursor()
         c.execute("INSERT INTO tasks (text) VALUES (?)", (text,))
         conn.commit(); conn.close()
-        bot.reply_to(message, f"⚔️ Указ принят и внесен в список дел, Царь-батюшка.")
+        bot.reply_to(message, f"📜 **Указ принят!** Внесен в список дел, Царь-батюшка.")
     else:
-        bot.reply_to(message, "Царь-батюшка, соизвольте написать текст указа после /add")
+        bot.reply_to(message, "Царь-батюшка, соизвольте написать текст указа после `/add`", parse_mode="Markdown")
 
-@bot.message_handler(func=lambda message: message.text == "✍️ Издать указ" and message.chat.id == ADMIN_ID)
+@bot.message_handler(func=lambda message: message.text == "📜 Список указов" and message.chat.id == ADMIN_ID)
 def show_tasks(message):
     conn = sqlite3.connect(DB_PATH)
     c = conn.cursor()
@@ -151,13 +151,13 @@ def show_tasks(message):
     conn.close()
     
     if not tasks:
-        bot.send_message(message.chat.id, "⚔️ Список указов пуст, Царь-батюшка. Напиши `/add [текст]`, чтобы издать новый.")
+        bot.send_message(message.chat.id, "📜 **Список указов пуст.** Напиши `/add [текст]`, чтобы издать новый указ.", parse_mode="Markdown")
         return
         
     markup = types.InlineKeyboardMarkup(row_width=1)
-    text = "⚔️ **Ваши указы на сегодня:**\n\n"
+    text = "📜 **Ваши указы на сегодня:**\n\n"
     for t in tasks:
-        text += f"• {t[1]}\n"
+        text += f"⚔️ {t[1]}\n"
         markup.add(types.InlineKeyboardButton(f"✅ Исполнено: {t[1][:15]}", callback_data=f"done_{t[0]}"))
     bot.send_message(message.chat.id, text, parse_mode="Markdown", reply_markup=markup)
 
@@ -170,9 +170,9 @@ def mark_done(call):
     conn.commit(); conn.close()
     bot.answer_callback_query(call.id, "Слушаюсь, Царь-батюшка!")
     bot.delete_message(call.message.chat.id, call.message.message_id)
-    bot.send_message(call.message.chat.id, "🗑 Указ исполнен и вычеркнут из списка.")
+    bot.send_message(call.message.chat.id, "✅ **Указ исполнен** и вычеркнут из списка.")
 
-# --- ЗАМЕТКИ ---
+# --- РУКОПИСИ (ЗАМЕТКИ) ---
 @bot.message_handler(commands=['note'], func=lambda message: message.chat.id == ADMIN_ID)
 def add_note(message):
     text = message.text.replace('/note', '').strip()
@@ -181,11 +181,11 @@ def add_note(message):
         c = conn.cursor()
         c.execute("INSERT INTO notes (text) VALUES (?)", (text,))
         conn.commit(); conn.close()
-        bot.reply_to(message, f"🖋️ Ваша запись навеки запечатлена на скрижалях, Царь-батюшка.")
+        bot.reply_to(message, f"📖 **Запись сохранена.** Навеки запечатлена в рукописях.")
     else:
-        bot.reply_to(message, "Царь-батюшка, соизвольте написать текст после /note")
+        bot.reply_to(message, "Царь-батюшка, соизвольте написать текст после `/note`", parse_mode="Markdown")
 
-@bot.message_handler(func=lambda message: message.text == "📜 Скрижали" and message.chat.id == ADMIN_ID)
+@bot.message_handler(func=lambda message: message.text == "📖 Рукописи" and message.chat.id == ADMIN_ID)
 def show_notes(message):
     conn = sqlite3.connect(DB_PATH)
     c = conn.cursor()
@@ -194,15 +194,15 @@ def show_notes(message):
     conn.close()
     
     if not notes:
-        bot.send_message(message.chat.id, "🖋️ Скрижали пусты. Начертать новое: `/note [текст]`", parse_mode="Markdown")
+        bot.send_message(message.chat.id, "📖 **Рукописи пусты.** Начертать новое: `/note [текст]`", parse_mode="Markdown")
         return
         
-    text = "🖋️ **Ваши скрижали:**\n\n"
+    text = "📖 **Ваши рукописи:**\n\n"
     for n in notes:
-        text += f"• {n[1]}\n"
+        text += f"🖋️ {n[1]}\n"
     bot.send_message(message.chat.id, text, parse_mode="Markdown")
 
-# --- НАПОМИНАНИЯ ---
+# --- ГОНЦЫ (НАПОМИНАНИЯ) ---
 @bot.message_handler(commands=['remind'], func=lambda message: message.chat.id == ADMIN_ID)
 def add_reminder(message):
     parts = message.text.replace('/remind', '').strip().split(' ', 2)
@@ -219,11 +219,11 @@ def add_reminder(message):
         c = conn.cursor()
         c.execute("INSERT INTO reminders (text, time) VALUES (?, ?)", (text, time_str))
         conn.commit(); conn.close()
-        bot.reply_to(message, f"🕊️ Гонец отправлен. В {time_str} я непременно извещу вас, Царь-батюшка.")
+        bot.reply_to(message, f"🕊️ **Гонец отправлен.** В {time_str} я извещу вас, Царь-батюшка.")
     except ValueError:
         bot.reply_to(message, "❌ Ошибка формата. Соизвольте использовать: ГГГГ-ММ-ДД ЧЧ:ММ")
 
-@bot.message_handler(func=lambda message: message.text == "🕊️ Послать гонца" and message.chat.id == ADMIN_ID)
+@bot.message_handler(func=lambda message: message.text == "🕊️ Гонцы" and message.chat.id == ADMIN_ID)
 def show_reminders(message):
     conn = sqlite3.connect(DB_PATH)
     c = conn.cursor()
@@ -232,7 +232,7 @@ def show_reminders(message):
     conn.close()
     
     if not rems:
-        bot.send_message(message.chat.id, "🕊️ Гонцов в пути нет. Чтобы послать: `/remind [дата] [время] [текст]`")
+        bot.send_message(message.chat.id, "🕊️ **Гонцов в пути нет.** Чтобы послать: `/remind [дата] [время] [текст]`", parse_mode="Markdown")
         return
         
     text = "🕊️ **Ожидающие гонцы:**\n\n"
@@ -250,7 +250,7 @@ def check_reminders():
             c.execute("SELECT id, text FROM reminders WHERE time <= ? AND is_sent = 0", (now,))
             due = c.fetchall()
             for r in due:
-                bot.send_message(ADMIN_ID, f"🔔 **ВНИМАНИЕ, ЦАРЬ-БАТЮШКА! ГОНЕЦ ПРИБЫЛ:**\n{r[1]}", parse_mode="Markdown")
+                bot.send_message(ADMIN_ID, f"🔔 **ВНИМАНИЕ, ЦАРЬ-БАТЮШКА! ГОНЕЦ ПРИБЫЛ:**\n\n{r[1]}", parse_mode="Markdown")
                 c.execute("UPDATE reminders SET is_sent = 1 WHERE id = ?", (r[0],))
             conn.commit()
             conn.close()
