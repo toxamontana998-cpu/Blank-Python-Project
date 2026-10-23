@@ -68,7 +68,6 @@ AI_PERSONA = (
     "ОБЯЗАТЕЛЬНО: идеальная пунктуация. Говори ЧЁТКО, ЯСНО, КРАСИВО, ЖИВО, без мямленья."
 )
 
-# Создаем модель один раз при старте
 model = genai.GenerativeModel(
     model_name='gemini-1.5-flash',
     system_instruction=AI_PERSONA
@@ -144,7 +143,6 @@ def handle_voice(message):
         file_info = bot.get_file(message.voice.file_id)
         downloaded = bot.download_file(file_info.file_path)
         
-        # Для старого SDK передаем словарь
         audio_part = {"mime_type": "audio/ogg", "data": downloaded}
         
         response = model.generate_content([audio_part, "Расшифруй речь господина и ответь согласно роли."])
