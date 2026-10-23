@@ -1,4 +1,6 @@
+flask
 pyTelegramBotAPI
-yt-dlp[default,curl-cffi]
-requests
-Flask
+google-genai
+edge-tts
+pydub
+static-ffmpeg
