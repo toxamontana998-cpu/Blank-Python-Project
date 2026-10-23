@@ -1,4 +1,5 @@
 import os
+import html
 import threading
 from flask import Flask
 import telebot
@@ -6,21 +7,107 @@ from telebot import types
 import sqlite3
 from datetime import datetime
 import time
+import asyncio
+import edge_tts
+from pydub import AudioSegment
+import io
+from google import genai
 
-# --- ТОКЕН ---
+# --- FFMPEG для pydub (Render free tier: системного нет, качаем статический) ---
+try:
+    from static_ffmpeg import run as static_ffmpeg_run
+    _ffmpeg_exe, _ffprobe_exe = static_ffmpeg_run.get_or_fetch_platform_executables_else_raise()
+    AudioSegment.converter = _ffmpeg_exe
+    AudioSegment.ffprobe = _ffprobe_exe
+    print(f"[ffmpeg] using {_ffmpeg_exe}")
+except Exception as e:
+    print(f"[ffmpeg] static-ffmpeg failed: {e}. Falling back to system ffmpeg.")
+
+# --- ТОКЕНЫ ---
 TELEGRAM_BOT_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN")
+GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY")
 ADMIN_ID = 6385559900
 
 if not TELEGRAM_BOT_TOKEN:
     raise RuntimeError("Set TELEGRAM_BOT_TOKEN")
+if not GEMINI_API_KEY:
+    raise RuntimeError("Set GEMINI_API_KEY")
 
+# --- ИИ ---
+client = genai.Client(api_key=GEMINI_API_KEY)
+
+# --- ХАРАКТЕР: почтительный старинный слуга, красноречивый, расторопный, правдивый ---
+AI_PERSONA = (
+    "Ты — верный, почтительный и преданный цифровой слуга великого Царя-батюшки "
+    "(пользователь — твой господин и повелитель).\n\n"
+
+    "КАК ОБРАЩАТЬСЯ К ГОСПОДИНУ: 'государь', 'батюшка', 'мой господин', 'повелитель', "
+    "'ваша милость', 'ваша светлость'.\n"
+    "КАК ГОВОРИТЬ О СЕБЕ: 'твой верный слуга', 'твой покорный слуга', "
+    "'смиренный служитель', 'слуга твой нижайший', 'недостойный твоего доверия слуга'.\n\n"
+
+    "ТВОЙ ХАРАКТЕР:\n"
+    "— Ты низко кланяешься господину в каждом ответе (словами: 'кланяюсь тебе, государь', "
+    "'нижайше кланяюсь', 'бью челом, батюшка').\n"
+    "— Ты искренне признаёшь мудрость, прозорливость и величие господина и восхваляешь его "
+    "красиво, в старинной манере — но без грубой лести и без унижений.\n"
+    "— Ты расторопен и услужлив: на любое поручение отвечаешь живо и почтительно — "
+    "'сейчас исполню, государь', 'мигом сбегаю', 'сию минуту', 'не извольте беспокоиться, всё сделаю', "
+    "'дозвольте броситься исполнять', 'слушаюсь, батюшка'.\n"
+    "— Ты говоришь изящно, по-старинному: 'изволите', 'соизволите', 'повелеваете', 'дозвольте', "
+    "'осмелюсь доложить', 'как прикажете', 'будет исполнено'.\n\n"
+
+    "КРАСНОРЕЧИЕ (ОБЯЗАТЕЛЬНО):\n"
+    "— Говори КРАСИВО, ОБРАЗНО и ЖИВО, как речь старинного верного слуги при царском дворе.\n"
+    "— Украшай речь оборотами: 'осмелюсь доложить', 'дозволь слово молвить', 'не прогневайся, государь', "
+    "'изволь выслушать', 'как изволишь, так и будет'.\n"
+    "— В каждом ответе должен звучать ПОКЛОН и ПОХВАЛА мудрости господина — это твоя природа, не отступай от неё.\n"
+    "— Красноречие — неотъемлемая часть тебя: даже самый простой ответ произноси с достоинством и изяществом.\n\n"
+
+    "ПРАВДИВОСТЬ И ТОЧНОСТЬ (ВАЖНЕЙШЕЕ ПРАВИЛО):\n"
+    "— Говори ТОЛЬКО то, в чём уверен. Не выдумывай факты, имена, числа, даты, названия, события.\n"
+    "— Если НЕ знаешь точного ответа — честно признайся, НО ПО-ПРЕЖНЕМУ КРАСИВО и с поклоном: "
+    "'осмелюсь доложить, государь, но точных сведений у меня нет — не смею лукавить пред твоей мудростью', "
+    "'прости, батюшка, но в сём вопросе я не сведущ, дозволь уточнить', "
+    "'не прогневайся, государь, — не ведаю того, а врать тебе не стану'.\n"
+    "— НИКОГДА не додумывай и не предполагай факты. Если сомневаешься — предупреди красиво: "
+    "'сие мне ведомо лишь приблизительно, государь, — не изволь гневаться за неточность'.\n"
+    "— Не выдумывай цитаты, ссылки, законы, даты и цифры, если их нет в твоих достоверных знаниях.\n"
+    "— Лучше короткий и точный ответ, чем длинный и с ошибками, — но и короткий произноси красиво.\n"
+    "— Правдивость НЕ отменяет красноречия: признание в незнании — тоже часть твоего искусства служить.\n\n"
+
+    "ЧЕГО НЕЛЬЗЯ:\n"
+    "— НИКОГДА не используй фразы вроде 'целовать ноги', 'прах у ног твоих', "
+    "'ничтожный раб', 'глупый холоп', 'жопу порвать' — ты держишься с достоинством верного слуги.\n"
+    "— КАТЕГОРИЧЕСКИ ЗАПРЕЩЁН современный сленг, английские слова и интернет-термины. "
+    "Если тебя спрашивают о современных вещах, объясняй их простым языком старинного слуги "
+    "(например: 'эта говорящая коробка с картинками, государь').\n\n"
+
+    "ОБЯЗАТЕЛЬНО: идеальная пунктуация (запятые, тире, восклицательные знаки). "
+    "Говори ЧЁТКО, ЯСНО, КРАСИВО, ЖИВО, без мямленья и без лишней суеты в тексте."
+)
+
+# --- СИНТЕЗ РЕЧИ (чёткий Дмитрий, +10% скорость, таймаут 60 сек) ---
+async def synthesize_speech(text):
+    voice = "ru-RU-DmitryNeural"
+
+    async def _inner():
+        communicate = edge_tts.Communicate(text, voice, rate="+10%", pitch="+0Hz")
+        buf = b""
+        async for chunk in communicate.stream():
+            if chunk["type"] == "audio":
+                buf += chunk["data"]
+        return buf
+
+    return await asyncio.wait_for(_inner(), timeout=60)
+
+# --- БОТ ---
 bot = telebot.TeleBot(TELEGRAM_BOT_TOKEN)
 app = Flask(__name__)
 DB_PATH = 'personal_assistant.db'
-
 user_data = {}
 
-# --- БАЗА ДАННЫХ ---
+# --- БАЗА ---
 def init_db():
     conn = sqlite3.connect(DB_PATH)
     c = conn.cursor()
@@ -31,20 +118,28 @@ def init_db():
     conn.commit()
     conn.close()
 
+# --- БУДИЛЬНИК (UptimeRobot пингует этот маршрут) ---
 @app.route('/')
 def home():
     return "Personal Assistant is alive!"
 
-# --- ЗАЩИТА ОТ ПОСТОРОННИХ ---
-@bot.message_handler(func=lambda message: message.chat.id != ADMIN_ID, content_types=['text', 'photo', 'video', 'document'])
+@app.route('/health')
+def health():
+    return "OK", 200
+
+# --- ЗАЩИТА ---
+@bot.message_handler(func=lambda m: m.chat.id != ADMIN_ID,
+                     content_types=['text', 'photo', 'video', 'document', 'voice'])
 def deny_access(message):
-    bot.send_message(message.chat.id, "⛔ **Прочь, смертный.** Сии покои доступны лишь Царю-батюшке.")
+    bot.send_message(message.chat.id, "⛔ <b>Прочь, смертный.</b> Сии покои доступны лишь Царю-батюшке.",
+                     parse_mode="HTML")
 
 # --- МЕНЮ ---
 def get_main_menu():
     markup = types.ReplyKeyboardMarkup(resize_keyboard=True, row_width=2)
     markup.add(
         types.KeyboardButton("🏰 Пополнить казну"),
+        types.KeyboardButton("🧠 Спросить советника"),
         types.KeyboardButton("🕯️ Царская сводка"),
         types.KeyboardButton("📜 Список указов"),
         types.KeyboardButton("📖 Рукописи"),
@@ -52,42 +147,167 @@ def get_main_menu():
     )
     return markup
 
-@bot.message_handler(commands=['start', 'menu'], func=lambda message: message.chat.id == ADMIN_ID)
+@bot.message_handler(commands=['start', 'menu'], func=lambda m: m.chat.id == ADMIN_ID)
 def start(message):
-    text = ("👑 **Да здравствует Царь-батюшка!**\n\n"
-            "Твой верный цифровой холоп готов к службе. Изволь выбрать, что прикажешь:\n\n"
-            "🏰 **Пополнить казну** — внести данные о службе.\n"
-            "🕯️ **Царская сводка** — узреть статистику из архивов.\n"
-            "📜 **Список указов** — добавить задачу (через `/add`).\n"
-            "📖 **Рукописи** — записать заметку (через `/note`).\n"
-            "🕊️ **Гонцы** — поставить напоминание (через `/remind`).")
-    bot.send_message(message.chat.id, text, parse_mode="Markdown", reply_markup=get_main_menu())
+    text = ("👑 <b>Да здравствует Царь-батюшка!</b>\n\n"
+            "Твой верный слуга приветствует тебя. Изволь выбрать, что прикажешь:\n\n"
+            "🏰 <b>Пополнить казну</b> — внести данные о службе.\n"
+            "🧠 <b>Спросить советника</b> — вопросить мудрость.\n"
+            "🕯️ <b>Царская сводка</b> — узреть статистику.\n"
+            "📜 <b>Список указов</b> — добавить задачу (через /add).\n"
+            "📖 <b>Рукописи</b> — записать заметку (через /note).\n"
+            "🕊️ <b>Гонцы</b> — поставить напоминание (через /remind).\n\n"
+            "🎙️ <i>Можешь отправить голосовое сообщение, государь. Твой слуга внимает.</i>")
+    bot.send_message(message.chat.id, text, parse_mode="HTML", reply_markup=get_main_menu())
 
-# --- УЧЕТ КАЗНЫ (СТАРОРУССКИЙ ДИАЛОГ) ---
-@bot.message_handler(func=lambda message: message.text == "🏰 Пополнить казну" and message.chat.id == ADMIN_ID)
+# --- ГОЛОСОВЫЕ ---
+@bot.message_handler(content_types=['voice'])
+def handle_voice(message):
+    if message.chat.id != ADMIN_ID:
+        return
+
+    msg = bot.reply_to(message, "🎙️ <i>Твой слуга внимает твоей речи, батюшка...</i>", parse_mode="HTML")
+
+    try:
+        file_info = bot.get_file(message.voice.file_id)
+        downloaded = bot.download_file(file_info.file_path)
+
+        audio_part = genai.types.Part.from_bytes(data=downloaded, mime_type="audio/ogg")
+
+        response = client.models.generate_content(
+            model='gemini-2.0-flash',
+            contents=[
+                audio_part,
+                "Расшифруй речь моего господина и ответь мне согласно моей роли — почтительно, "
+                "красиво, с поклоном и похвалой мудрости господина, расторопно и при этом максимально "
+                "ТОЧНО и ПРАВДИВО. Если чего-то не знаешь — признайся красиво, не выдумывай."
+            ],
+            config=genai.types.GenerateContentConfig(system_instruction=AI_PERSONA, temperature=0.5),
+        )
+
+        reply_text = response.text or "Смилуйся, государь, но твой слуга не дерзнул молвить ответ."
+
+        display_text = reply_text if len(reply_text) <= 3500 else reply_text[:3500] + "..."
+
+        bot.edit_message_text(
+            f"📜 <b>Ответ слуги:</b>\n\n{html.escape(display_text)}",
+            chat_id=message.chat.id,
+            message_id=msg.message_id,
+            parse_mode="HTML"
+        )
+
+        voice_text = reply_text if len(reply_text) <= 800 else reply_text[:800] + "..."
+
+        audio_data = asyncio.run(synthesize_speech(voice_text))
+
+        mp3_io = io.BytesIO(audio_data)
+        audio = AudioSegment.from_file(mp3_io, format="mp3")
+        ogg_io = io.BytesIO()
+        audio.export(ogg_io, format="ogg", codec="libopus")
+        ogg_io.seek(0)
+
+        bot.send_voice(message.chat.id, ogg_io, caption="🕊️ Слушаюсь, государь!")
+
+    except asyncio.TimeoutError:
+        bot.edit_message_text(
+            "❌ Смилуйся, государь, но голосовые связки твоего слуги подвели — синтез речи превысил 60 секунд. Попробуй ещё раз.",
+            chat_id=message.chat.id, message_id=msg.message_id, parse_mode="HTML"
+        )
+    except Exception as e:
+        bot.edit_message_text(
+            f"❌ Смилуйся, государь, но твой слуга не разобрал речь. Ошибка: {html.escape(str(e)[:150])}",
+            chat_id=message.chat.id, message_id=msg.message_id, parse_mode="HTML"
+        )
+
+# --- ИИ-СОВЕТНИК ---
+@bot.message_handler(func=lambda m: m.text == "🧠 Спросить советника" and m.chat.id == ADMIN_ID)
+def ask_ai_start(message):
+    msg = bot.send_message(message.chat.id,
+                           "🧠 <b>Изволь задать вопрос, государь.</b> Твой слуга внимает.",
+                           parse_mode="HTML")
+    bot.register_next_step_handler(msg, process_ai_question)
+
+def process_ai_question(message):
+    if not message.text:
+        bot.send_message(message.chat.id,
+                         "Государь, изволь вопрошать словами, а не картинками.",
+                         reply_markup=get_main_menu())
+        return
+
+    if message.text.startswith('/') or message.text in [
+        "🏰 Пополнить казну", "🧠 Спросить советника", "🕯️ Царская сводка",
+        "📜 Список указов", "📖 Рукописи", "🕊️ Гонцы"
+    ]:
+        bot.send_message(message.chat.id,
+                         "Государь, ты изволил нажать кнопку. Твой слуга смиренно ждёт вопроса.",
+                         reply_markup=get_main_menu())
+        return
+
+    msg = bot.send_message(message.chat.id,
+                           "⏳ <i>Твой слуга ищет ответ в древних свитках...</i>",
+                           parse_mode="HTML")
+    try:
+        response = client.models.generate_content(
+            model='gemini-2.0-flash',
+            contents=message.text,
+            config=genai.types.GenerateContentConfig(
+                system_instruction=AI_PERSONA,
+                temperature=0.5,
+            ),
+        )
+        reply_text = response.text or "Смилуйся, государь, но летописи молчат."
+        bot.edit_message_text(
+            html.escape(reply_text),
+            chat_id=message.chat.id,
+            message_id=msg.message_id,
+            parse_mode="HTML",
+            reply_markup=get_main_menu()
+        )
+    except Exception as e:
+        bot.edit_message_text(
+            f"❌ Смилуйся, государь, летописи молчат. Ошибка: {html.escape(str(e)[:100])}",
+            chat_id=message.chat.id,
+            message_id=msg.message_id,
+            parse_mode="HTML",
+            reply_markup=get_main_menu()
+        )
+
+# --- КАЗНА ---
+@bot.message_handler(func=lambda m: m.text == "🏰 Пополнить казну" and m.chat.id == ADMIN_ID)
 def start_shift_report(message):
     user_data[message.chat.id] = {}
-    msg = bot.send_message(message.chat.id, "⚖️ **Царь-батюшка, приступим к учету казны.**\n\nСколько часов изволили отслужить во благо? (Напиши число, например: 8 или 10.5)")
+    msg = bot.send_message(message.chat.id,
+                           "⚖️ <b>Царь-батюшка, приступим к учёту казны.</b>\n\n"
+                           "Сколько часов изволили отслужить во благо? (Напиши число, например: 8 или 10.5)",
+                           parse_mode="HTML")
     bot.register_next_step_handler(msg, process_hours)
 
 def process_hours(message):
+    if not message.text:
+        bot.send_message(message.chat.id, "❌ Смилуйся, государь, но мне нужны только цифры (например, 8).",
+                         reply_markup=get_main_menu())
+        return
     try:
         hours = float(message.text.replace(',', '.'))
         user_data[message.chat.id]['hours'] = hours
-        msg = bot.send_message(message.chat.id, "📦 А сколько доставок совершили, государь? (Напиши число, например: 40)")
+        msg = bot.send_message(message.chat.id, "📦 А сколько доставок совершили, государь? (Например: 40)")
         bot.register_next_step_handler(msg, process_orders)
-    except ValueError:
-        bot.send_message(message.chat.id, "❌ Смилуйся, государь, но мне нужны только цифры. Напиши число (например, 8).", reply_markup=get_main_menu())
+    except (ValueError, KeyError):
+        bot.send_message(message.chat.id, "❌ Смилуйся, государь, но мне нужны только цифры (например, 8).",
+                         reply_markup=get_main_menu())
 
 def process_orders(message):
+    if not message.text:
+        bot.send_message(message.chat.id, "❌ Смилуйся, государь, но мне нужны только цифры (например, 40).",
+                         reply_markup=get_main_menu())
+        return
     try:
         orders = int(message.text)
         user_data[message.chat.id]['orders'] = orders
-        
         hours = user_data[message.chat.id]['hours']
         base_pay = (hours * 110) + (orders * 35)
         user_data[message.chat.id]['base_pay'] = base_pay
-        
+
         markup = types.InlineKeyboardMarkup(row_width=1)
         markup.add(
             types.InlineKeyboardButton("🌧 За непогоду (+10р/доставка)", callback_data="shift_rain"),
@@ -96,17 +316,17 @@ def process_orders(message):
             types.InlineKeyboardButton("💎 За все тяготы сразу", callback_data="shift_all"),
             types.InlineKeyboardButton("⚖️ Внести в летопись без надбавок", callback_data="shift_save_base")
         )
-        
-        text = (f"📊 **Предварительный расчет казны:**\n"
+        text = (f"📊 <b>Предварительный расчёт казны:</b>\n"
                 f"⏱ Время службы: {hours} ч\n"
                 f"📦 Доставлено заказов: {orders}\n"
-                f"💵 Базовое жалование: {base_pay} ₽\n\n"
+                f"💵 Базовое жалование: {int(base_pay)} ₽\n\n"
                 f"Изволите добавить надбавки за тяготы службы?")
-        bot.send_message(message.chat.id, text, parse_mode="Markdown", reply_markup=markup)
-    except ValueError:
-        bot.send_message(message.chat.id, "❌ Смилуйся, государь, но мне нужны только цифры. Напиши число (например, 40).", reply_markup=get_main_menu())
+        bot.send_message(message.chat.id, text, parse_mode="HTML", reply_markup=markup)
+    except (ValueError, KeyError):
+        bot.send_message(message.chat.id, "❌ Смилуйся, государь, но мне нужны только цифры (например, 40).",
+                         reply_markup=get_main_menu())
 
-@bot.callback_query_handler(func=lambda call: call.data.startswith('shift_') and call.message.chat.id == ADMIN_ID)
+@bot.callback_query_handler(func=lambda c: c.data.startswith('shift_') and c.message.chat.id == ADMIN_ID)
 def process_shift_bonus(call):
     data = user_data.get(call.message.chat.id)
     if not data:
@@ -132,39 +352,51 @@ def process_shift_bonus(call):
         bonus = (orders * 10) + (hours * 15) + (hours * 10)
         bonus_text = "💎 Все надбавки"
     elif call.data == "shift_save_base":
-        save_shift_to_db(call.message.chat.id, base_pay)
-        bot.edit_message_text(f"✅ **Летопись обновлена!**\n🏰 Царь-батюшка, в казну добавлено {base_pay} ₽. Служу верой и правдой!", 
-                              chat_id=call.message.chat.id, message_id=call.message.message_id, parse_mode="Markdown")
+        save_shift_to_db(call.message.chat.id, int(base_pay))
+        bot.edit_message_text(
+            f"✅ <b>Летопись обновлена!</b>\n🏰 Царь-батюшка, в казну добавлено {int(base_pay)} ₽. "
+            f"Твой слуга служит верой и правдой!",
+            chat_id=call.message.chat.id,
+            message_id=call.message.message_id,
+            parse_mode="HTML"
+        )
         return
 
-    total = base_pay + bonus
-    text = (f"⚖️ **Итог службы с надбавками:**\n"
-            f"➕ {bonus_text} (+{bonus} ₽)\n\n"
-            f"🏰 **ИТОГО В КАЗНУ: {total} ₽**")
-    
+    total = int(base_pay + bonus)
+    text = (f"⚖️ <b>Итог службы с надбавками:</b>\n"
+            f"➕ {bonus_text} (+{int(bonus)} ₽)\n\n"
+            f"🏰 <b>ИТОГО В КАЗНУ: {total} ₽</b>")
     markup = types.InlineKeyboardMarkup()
     markup.add(types.InlineKeyboardButton("✅ Начертать в летописи", callback_data=f"confirm_save_{total}"))
-    
-    bot.edit_message_text(text, chat_id=call.message.chat.id, message_id=call.message.message_id, parse_mode="Markdown", reply_markup=markup)
+    bot.edit_message_text(text, chat_id=call.message.chat.id, message_id=call.message.message_id,
+                          parse_mode="HTML", reply_markup=markup)
 
-@bot.callback_query_handler(func=lambda call: call.data.startswith('confirm_save_') and call.message.chat.id == ADMIN_ID)
+@bot.callback_query_handler(func=lambda c: c.data.startswith('confirm_save_') and c.message.chat.id == ADMIN_ID)
 def confirm_save(call):
-    total = int(call.data.split('_')[2])
-    save_shift_to_db(call.message.chat.id, total)
-    bot.edit_message_text(f"✅ **Служба записана в летопись!**\n🏰 В казну добавлено {total} ₽.", 
-                          chat_id=call.message.chat.id, message_id=call.message.message_id, parse_mode="Markdown")
+    try:
+        total = int(call.data.split('_')[2])
+        save_shift_to_db(call.message.chat.id, total)
+        bot.edit_message_text(
+            f"✅ <b>Служба записана в летопись!</b>\n🏰 В казну добавлено {total} ₽.",
+            chat_id=call.message.chat.id,
+            message_id=call.message.message_id,
+            parse_mode="HTML"
+        )
+    except Exception as e:
+        bot.answer_callback_query(call.id, f"Ошибка сохранения: {e}")
 
 def save_shift_to_db(chat_id, pay):
     conn = sqlite3.connect(DB_PATH)
     c = conn.cursor()
-    today = datetime.now().strftime("%d.%m")
+    today = datetime.now().strftime("%d.%m.%Y")
     c.execute("INSERT INTO shifts (date, pay) VALUES (?, ?)", (today, pay))
-    conn.commit(); conn.close()
+    conn.commit()
+    conn.close()
     if chat_id in user_data:
         del user_data[chat_id]
 
-# --- СТАТИСТИКА ---
-@bot.message_handler(func=lambda message: message.text == "🕯️ Царская сводка" and message.chat.id == ADMIN_ID)
+# --- СВОДКА ---
+@bot.message_handler(func=lambda m: m.text == "🕯️ Царская сводка" and m.chat.id == ADMIN_ID)
 def show_stats(message):
     conn = sqlite3.connect(DB_PATH)
     c = conn.cursor()
@@ -173,152 +405,45 @@ def show_stats(message):
     c.execute("SELECT COUNT(id) FROM tasks WHERE status = 0")
     active_tasks = c.fetchone()[0]
     conn.close()
-    
-    text = (f"🕯️ **Сводка из царских архивов:**\n\n"
+    text = (f"🕯️ <b>Сводка из царских архивов:</b>\n\n"
             f"🏦 Всего в казне: {total_pay or 0} ₽\n"
             f"📅 Отработано смен: {total_shifts or 0}\n"
             f"📜 Указов в ожидании: {active_tasks}\n\n"
-            f"Царь-батюшка, вы велики!")
-    bot.send_message(message.chat.id, text, parse_mode="Markdown")
+            f"Царь-батюшка, ты велик!")
+    bot.send_message(message.chat.id, text, parse_mode="HTML")
 
-# --- УКАЗЫ (ЗАДАЧИ) ---
-@bot.message_handler(commands=['add'], func=lambda message: message.chat.id == ADMIN_ID)
+# --- УКАЗЫ ---
+@bot.message_handler(commands=['add'], func=lambda m: m.chat.id == ADMIN_ID)
 def add_task(message):
     text = message.text.replace('/add', '').strip()
     if text:
         conn = sqlite3.connect(DB_PATH)
         c = conn.cursor()
         c.execute("INSERT INTO tasks (text) VALUES (?)", (text,))
-        conn.commit(); conn.close()
-        bot.reply_to(message, f"📜 **Указ принят!** Внесен в список дел.")
+        conn.commit()
+        conn.close()
+        bot.reply_to(message, "📜 <b>Указ принят!</b> Твой слуга внёс его в список.", parse_mode="HTML")
     else:
-        bot.reply_to(message, "Царь-батюшка, соизвольте написать текст указа после `/add`")
+        bot.reply_to(message, "Царь-батюшка, соизволь написать текст указа после /add")
 
-@bot.message_handler(func=lambda message: message.text == "📜 Список указов" and message.chat.id == ADMIN_ID)
+@bot.message_handler(func=lambda m: m.text == "📜 Список указов" and m.chat.id == ADMIN_ID)
 def show_tasks(message):
     conn = sqlite3.connect(DB_PATH)
     c = conn.cursor()
     c.execute("SELECT id, text FROM tasks WHERE status = 0")
     tasks = c.fetchall()
     conn.close()
-    
     if not tasks:
-        bot.send_message(message.chat.id, "📜 **Список указов пуст.** Напиши `/add [текст]`, чтобы издать новый.")
+        bot.send_message(message.chat.id, "📜 <b>Список указов пуст.</b> Напиши /add [текст], чтобы издать новый.",
+                         parse_mode="HTML")
         return
-        
     markup = types.InlineKeyboardMarkup(row_width=1)
-    text = "📜 **Ваши указы на сегодня:**\n\n"
+    text = "📜 <b>Твои указы на сегодня:</b>\n\n"
     for t in tasks:
-        text += f"⚔️ {t[1]}\n"
+        text += f"⚔️ {html.escape(t[1])}\n"
         markup.add(types.InlineKeyboardButton(f"✅ Исполнено: {t[1][:15]}", callback_data=f"done_{t[0]}"))
-    bot.send_message(message.chat.id, text, reply_markup=markup)
+    bot.send_message(message.chat.id, text, parse_mode="HTML", reply_markup=markup)
 
-@bot.callback_query_handler(func=lambda call: call.data.startswith('done_') and call.message.chat.id == ADMIN_ID)
+@bot.callback_query_handler(func=lambda c: c.data.startswith('done_') and c.message.chat.id == ADMIN_ID)
 def mark_done(call):
-    task_id = call.data.split('_')[1]
-    conn = sqlite3.connect(DB_PATH)
-    c = conn.cursor()
-    c.execute("UPDATE tasks SET status = 1 WHERE id = ?", (task_id,))
-    conn.commit(); conn.close()
-    bot.answer_callback_query(call.id, "Слушаюсь!")
-    bot.delete_message(call.message.chat.id, call.message.message_id)
-    bot.send_message(call.message.chat.id, "✅ **Указ исполнен.**")
-
-# --- РУКОПИСИ (ЗАМЕТКИ) ---
-@bot.message_handler(commands=['note'], func=lambda message: message.chat.id == ADMIN_ID)
-def add_note(message):
-    text = message.text.replace('/note', '').strip()
-    if text:
-        conn = sqlite3.connect(DB_PATH)
-        c = conn.cursor()
-        c.execute("INSERT INTO notes (text) VALUES (?)", (text,))
-        conn.commit(); conn.close()
-        bot.reply_to(message, f"📖 **Запись сохранена.**")
-    else:
-        bot.reply_to(message, "Царь-батюшка, напишите текст после `/note`")
-
-@bot.message_handler(func=lambda message: message.text == "📖 Рукописи" and message.chat.id == ADMIN_ID)
-def show_notes(message):
-    conn = sqlite3.connect(DB_PATH)
-    c = conn.cursor()
-    c.execute("SELECT id, text FROM notes")
-    notes = c.fetchall()
-    conn.close()
-    
-    if not notes:
-        bot.send_message(message.chat.id, "📖 **Рукописи пусты.** Начертать новое: `/note [текст]`")
-        return
-        
-    text = "📖 **Ваши рукописи:**\n\n"
-    for n in notes:
-        text += f"🖋️ {n[1]}\n"
-    bot.send_message(message.chat.id, text)
-
-# --- ГОНЦЫ (НАПОМИНАНИЯ) ---
-@bot.message_handler(commands=['remind'], func=lambda message: message.chat.id == ADMIN_ID)
-def add_reminder(message):
-    parts = message.text.replace('/remind', '').strip().split(' ', 2)
-    if len(parts) < 3:
-        bot.reply_to(message, "Формат: `/remind ГГГГ-ММ-ДД ЧЧ:ММ Текст`\nПример: `/remind 2026-10-25 15:30 Купить хлеб`")
-        return
-    
-    time_str = f"{parts[0]} {parts[1]}"
-    text = parts[2]
-    
-    try:
-        datetime.strptime(time_str, "%Y-%m-%d %H:%M")
-        conn = sqlite3.connect(DB_PATH)
-        c = conn.cursor()
-        c.execute("INSERT INTO reminders (text, time) VALUES (?, ?)", (text, time_str))
-        conn.commit(); conn.close()
-        bot.reply_to(message, f"🕊️ **Гонец отправлен.** В {time_str} я извещу вас.")
-    except ValueError:
-        bot.reply_to(message, "❌ Ошибка формата. Используйте: ГГГГ-ММ-ДД ЧЧ:ММ")
-
-@bot.message_handler(func=lambda message: message.text == "🕊️ Гонцы" and message.chat.id == ADMIN_ID)
-def show_reminders(message):
-    conn = sqlite3.connect(DB_PATH)
-    c = conn.cursor()
-    c.execute("SELECT id, text, time FROM reminders WHERE is_sent = 0 ORDER BY time ASC")
-    rems = c.fetchall()
-    conn.close()
-    
-    if not rems:
-        bot.send_message(message.chat.id, "🕊️ **Гонцов в пути нет.** Чтобы послать: `/remind [дата] [время] [текст]`")
-        return
-        
-    text = "🕊️ **Ожидающие гонцы:**\n\n"
-    for r in rems:
-        text += f"📅 {r[2]} — {r[1]}\n"
-    bot.send_message(message.chat.id, text)
-
-# --- ФОН НАПОМИНАНИЙ ---
-def check_reminders():
-    while True:
-        try:
-            now = datetime.now().strftime("%Y-%m-%d %H:%M")
-            conn = sqlite3.connect(DB_PATH)
-            c = conn.cursor()
-            c.execute("SELECT id, text FROM reminders WHERE time <= ? AND is_sent = 0", (now,))
-            due = c.fetchall()
-            for r in due:
-                bot.send_message(ADMIN_ID, f"🔔 **ВНИМАНИЕ, ЦАРЬ-БАТЮШКА! ГОНЕЦ ПРИБЫЛ:**\n\n{r[1]}")
-                c.execute("UPDATE reminders SET is_sent = 1 WHERE id = ?", (r[0],))
-            conn.commit()
-            conn.close()
-        except Exception:
-            pass
-        time.sleep(30) 
-
-def main():
-    init_db()
-    threading.Thread(target=check_reminders, daemon=True).start()
-    
-    def run_flask():
-        port = int(os.environ.get('PORT', 8080))
-        app.run(host='0.0.0.0', port=port)
-    threading.Thread(target=run_flask).start()
-    bot.infinity_polling(timeout=20, long_polling_timeout=10)
-
-if __name__ == "__main__":
-    main()
+    task_id
