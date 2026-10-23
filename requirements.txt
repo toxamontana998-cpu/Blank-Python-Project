@@ -1,5 +1,5 @@
 pyTelegramBotAPI
-google-generativeai
 edge-tts
 pydub
 static-ffmpeg
+requests
