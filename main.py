@@ -688,7 +688,7 @@ def show_reminders(message):
     if not rems: bot.send_message(message.chat.id, "🕊️ <b>Гонцов в пути нет.</b> Чтобы послать: /remind [дата] [время] [текст]", parse_mode="HTML")
     else: bot.send_message(message.chat.id, "🕊️ <b>Ожидающие гонцы:</b>\n\n" + "\n".join([f"📅 {r[1]} — {html.escape(r[0])}" for r in rems]), parse_mode="HTML")
 
- def check_reminders():
+def check_reminders():
     while True:
         try:
             now = datetime.now().strftime("%Y-%m-%d %H:%M")
@@ -794,16 +794,5 @@ def main():
         print(f"!!! ОШИБКА БОТА !!! {traceback.format_exc()}")
 
 if __name__ == "__main__":
-    main()
-def main():
-    print("=== СТАРТ БОТА ===")
-    init_db()
-    threading.Thread(targe
-    
-    try:
-        bot.infinity_polling(timeout=20, long_polling_timeout=10, skip_pending=True)
-    except Exception as e:
-        print(f"!!! ОШИБКА БОТА !!! {traceback.format_exc()}")
-
-if __name__ == "__main__":
-    main()
+    main()                     
+                    
