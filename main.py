@@ -69,6 +69,18 @@ def init_db():
     c.execute('''CREATE TABLE IF NOT EXISTS notes (id INTEGER PRIMARY KEY AUTOINCREMENT, text TEXT)''')
     c.execute('''CREATE TABLE IF NOT EXISTS vakhta (id INTEGER PRIMARY KEY CHECK (id = 1), start_date TEXT, end_date TEXT)''')
     c.execute('''CREATE TABLE IF NOT EXISTS expenses (id INTEGER PRIMARY KEY AUTOINCREMENT, date TEXT, amount INTEGER, description TEXT)''')
+    c.execute('''CREATE TABLE IF NOT EXISTS debts (id INTEGER PRIMARY KEY AUTOINCREMENT, type TEXT, name TEXT, amount INTEGER)''')
+    c.execute('''CREATE TABLE IF NOT EXISTS bot_status (key TEXT PRIMARY KEY, value TEXT)''')
+    
+    c.execute("PRAGMA table_info(vakhta)")
+    columns = [info[1] for info in c.fetchall()]
+    if 'w_start' not in columns:
+        c.execute("ALTER TABLE vakhta ADD COLUMN w_start TEXT")
+    if 'w_end' not in columns:
+        c.execute("ALTER TABLE vakhta ADD COLUMN w_end TEXT")
+    if 'w_days' not in columns:
+        c.execute("ALTER TABLE vakhta ADD COLUMN w_days TEXT")
+        
     conn.commit()
     conn.close()
 
@@ -78,13 +90,16 @@ def get_main_menu():
         types.KeyboardButton("🏰 Пополнить казну"),
         types.KeyboardButton("🧠 Спросить советника"),
         types.KeyboardButton("🕯️ Царская сводка"),
-        types.KeyboardButton("📜 Список указов"),
+        types.KeyboardButton("🪶 Список указов"),
         types.KeyboardButton("📖 Рукописи"),
         types.KeyboardButton("🕊️ Гонцы"),
         types.KeyboardButton("⚔️ Царская вахта"),
         types.KeyboardButton("💸 Траты из казны"),
         types.KeyboardButton("💰 Прибыток за вахту"),
-        types.KeyboardButton("💣 Служба завтра")
+        types.KeyboardButton("🔮 Предсказание прибытка"),
+        types.KeyboardButton("💣 Служба завтра"),
+        types.KeyboardButton("📕 Долговая книга"),
+        types.KeyboardButton("📜 Свиток помощи")
     )
     return markup
 
@@ -98,14 +113,58 @@ def start(message):
             "🏰 <b>Пополнить казну</b> — внести данные о службе.\n"
             "🧠 <b>Спросить советника</b> — вопросить мудрость.\n"
             "🕯️ <b>Царская сводка</b> — узреть статистику за всё время.\n"
-            "📜 <b>Список указов</b> — добавить задачу (через /add).\n"
+            "🪶 <b>Список указов</b> — добавить задачу (через /add).\n"
             "📖 <b>Рукописи</b> — записать заметку (через /note).\n"
             "🕊️ <b>Гонцы</b> — поставить напоминание (через /remind).\n"
-            "⚔️ <b>Царская вахта</b> — узреть сроки службы.\n"
+            "⚔️ <b>Царская вахта</b> — сроки и график службы.\n"
             "💸 <b>Траты из казны</b> — записать издержки.\n"
             "💰 <b>Прибыток за вахту</b> — узреть чистую монету.\n"
-            "💣 <b>Служба завтра</b> — послать гонца с напоминанием.")
+            "🔮 <b>Предсказание прибытка</b> — узреть, сколько привезёшь домой.\n"
+            "💣 <b>Служба завтра</b> — послать гонца с напоминанием.\n"
+            "📕 <b>Долговая книга</b> — учесть долги.\n\n"
+            "📜 <i>Свиток со скрытыми командами — нажми кнопку «Свиток помощи» внизу.</i>")
     bot.send_message(message.chat.id, text, parse_mode="HTML", reply_markup=get_main_menu())
+
+@bot.message_handler(func=lambda m: m.text == "📜 Свиток помощи" and m.chat.id == ADMIN_ID)
+def help_button(message):
+    text = ("📜 <b>Царские скрытые команды:</b>\n\n"
+            "🔹 /add [текст] — издать новый указ\n"
+            "🔹 /note [текст] — записать в рукописи\n"
+            "🔹 /remind ГГГГ-ММ-ДД ЧЧ:ММ [текст] — послать гонца\n"
+            "🔹 /set_vakhta — задать даты (можно через кнопку ⚔️ Царская вахта)\n"
+            "🔹 /reset — <b>СТЕРЕТЬ ВСЕ ДАННЫЕ</b> (казну, траты, записи) для теста\n\n"
+            "💡 <i>Чтобы задать график службы, нажми ⚔️ Царская вахта и выбери нужный пункт.</i>")
+    bot.send_message(message.chat.id, text, parse_mode="HTML")
+
+@bot.message_handler(commands=['help'], func=lambda m: m.chat.id == ADMIN_ID)
+def help_command(message):
+    help_button(message)
+
+@bot.message_handler(commands=['reset'], func=lambda m: m.chat.id == ADMIN_ID)
+def reset_data(message):
+    markup = types.InlineKeyboardMarkup()
+    markup.add(types.InlineKeyboardButton("✅ Да, стереть всё", callback_data="confirm_reset"))
+    markup.add(types.InlineKeyboardButton("❌ Отмена", callback_data="cancel_reset"))
+    bot.send_message(message.chat.id, "⚠️ <b>Государь, изволь подтвердить.</b>\n\nЭто сотрет ВСЕ данные: казну, траты, указы, рукописи и настройки вахты. Начать всё с чистого листа?", parse_mode="HTML", reply_markup=markup)
+
+@bot.callback_query_handler(func=lambda c: c.data in ['confirm_reset', 'cancel_reset'] and c.message.chat.id == ADMIN_ID)
+def process_reset(call):
+    if call.data == 'confirm_reset':
+        conn = sqlite3.connect(DB_PATH)
+        c = conn.cursor()
+        c.execute("DELETE FROM shifts")
+        c.execute("DELETE FROM expenses")
+        c.execute("DELETE FROM tasks")
+        c.execute("DELETE FROM notes")
+        c.execute("DELETE FROM reminders")
+        c.execute("DELETE FROM vakhta")
+        c.execute("DELETE FROM debts")
+        c.execute("DELETE FROM bot_status")
+        conn.commit()
+        conn.close()
+        bot.edit_message_text("✅ <b>Всё стерто с лица земли, государь!</b>\n\nЛетописи чисты, можно начинать сначала.", chat_id=call.message.chat.id, message_id=call.message.message_id, parse_mode="HTML")
+    else:
+        bot.delete_message(call.message.chat.id, call.message.message_id)
 
 @bot.message_handler(content_types=['voice'])
 def handle_voice(message):
@@ -115,8 +174,9 @@ def handle_voice(message):
 # --- ИИ ---
 @bot.message_handler(func=lambda m: m.chat.id == ADMIN_ID and m.text and not m.text.startswith('/') and m.text not in [
     "🏰 Пополнить казну", "🧠 Спросить советника", "🕯️ Царская сводка", 
-    "📜 Список указов", "📖 Рукописи", "🕊️ Гонцы", "⚔️ Царская вахта", 
-    "💸 Траты из казны", "💰 Прибыток за вахту", "💣 Служба завтра"
+    "🪶 Список указов", "📖 Рукописи", "🕊️ Гонцы", "⚔️ Царская вахта", 
+    "💸 Траты из казны", "💰 Прибыток за вахту", "🔮 Предсказание прибытка",
+    "💣 Служба завтра", "📕 Долговая книга", "📜 Свиток помощи"
 ])
 def process_ai_question(message):
     msg = bot.send_message(message.chat.id, "⏳ <i>Слуга твой ищет ответ в древних свитках...</i>", parse_mode="HTML")
@@ -219,17 +279,21 @@ def show_stats(message):
     c.execute("SELECT COUNT(id) FROM tasks WHERE status = 0")
     active_tasks = c.fetchone()[0]
     conn.close()
-    bot.send_message(message.chat.id, f"🕯️ <b>Сводка из царских архивов:</b>\n\n🏦 Всего в казне: {total_pay or 0} ₽\n📅 Отработано смен: {total_shifts or 0}\n📜 Указов в ожидании: {active_tasks}", parse_mode="HTML")
-                            # --- ВАХТА ---
+    bot.send_message(message.chat.id, f"🕯️ <b>Сводка из царских архивов:</b>\n\n🏦 Всего в казне: {total_pay or 0} ₽\n📅 Отработано смен: {total_shifts or 0}\n📜 Указов в ожидании: {active_tasks}", parse_mode="HTML")# --- ВАХТА ---
 @bot.message_handler(func=lambda m: m.text == "⚔️ Царская вахта" and m.chat.id == ADMIN_ID)
 def vakhta_menu(message):
     conn = sqlite3.connect(DB_PATH)
     c = conn.cursor()
-    c.execute("SELECT start_date, end_date FROM vakhta WHERE id = 1")
+    c.execute("SELECT start_date, end_date, w_start, w_end, w_days FROM vakhta WHERE id = 1")
     row = c.fetchone()
     conn.close()
+    
+    markup = types.InlineKeyboardMarkup(row_width=1)
+    markup.add(types.InlineKeyboardButton("📅 Задать/изменить даты вахты", callback_data="setup_vakhta_dates"))
+    markup.add(types.InlineKeyboardButton("⏰ Задать/изменить график службы", callback_data="setup_vakhta_schedule"))
+    
     if row:
-        start, end = row
+        start, end, w_start, w_end, w_days = row
         try:
             d2 = datetime.strptime(end, "%d.%m.%Y")
             today = datetime.now()
@@ -238,24 +302,34 @@ def vakhta_menu(message):
                 status = "Вахта завершена, государь. Изволь отдохнуть."
             else:
                 status = f"Осталось нести службу: <b>{left} дней</b>."
-            text = f"⚔️ <b>Текущая вахта:</b>\nС {start} по {end}\n{status}\n\nИзволишь переустановить сроки? Напиши /set_vakhta"
+            text = f"⚔️ <b>Текущая вахта:</b>\nС {start} по {end}\n{status}\n\n"
+            
+            if w_start and w_end and w_days:
+                days_map = {"1": "Пн", "2": "Вт", "3": "Ср", "4": "Чт", "5": "Пт", "6": "Сб", "7": "Вс"}
+                days_str = ", ".join([days_map.get(d.strip(), d) for d in w_days.split(',')])
+                text += f"⏰ <b>График:</b> с {w_start} до {w_end}\n📅 <b>Дни:</b> {days_str}\n\n"
+            else:
+                text += "⏰ График службы ещё не задан.\n\n"
+                
+            text += "Изволь выбрать, что настроить:"
         except:
-            text = "❌ Смилуйся, государь, но в датах вышла путаница. Переустанови через /set_vakhta"
+            text = "❌ Смилуйся, государь, но в датах вышла путаница.\nИзволь выбрать, что настроить:"
     else:
-        text = "⚔️ Государь, сроки вахты ещё не начертаны.\nИзволь написать /set_vakhta, чтобы задать даты."
-    bot.send_message(message.chat.id, text, parse_mode="HTML")
+        text = "⚔️ Государь, сроки вахты ещё не начертаны.\nИзволь выбрать, что настроить:"
+        
+    bot.send_message(message.chat.id, text, parse_mode="HTML", reply_markup=markup)
 
-@bot.message_handler(commands=['set_vakhta'], func=lambda m: m.chat.id == ADMIN_ID)
-def set_vakhta_start(message):
-    msg = bot.send_message(message.chat.id, "📅 <b>Соизволь молвить, с какого дня начинается служба? (ДД.ММ.ГГГГ)</b>", parse_mode="HTML")
-    bot.register_next_step_handler(msg, set_vakhta_end)
+@bot.callback_query_handler(func=lambda call: call.data == "setup_vakhta_dates" and call.message.chat.id == ADMIN_ID)
+def setup_vakhta_dates_cb(call):
+    bot.edit_message_text("📅 <b>Соизволь молвить, с какого дня начинается служба? (ДД.ММ.ГГГГ)</b>", chat_id=call.message.chat.id, message_id=call.message.message_id, parse_mode="HTML")
+    bot.register_next_step_handler(call.message, set_vakhta_end)
 
 def set_vakhta_end(message):
     start_date = message.text.strip()
     try:
         datetime.strptime(start_date, "%d.%m.%Y")
     except:
-        bot.send_message(message.chat.id, "❌ Смилуйся, государь, формат не тот. Начни заново /set_vakhta")
+        bot.send_message(message.chat.id, "❌ Смилуйся, государь, формат не тот. Начни заново через ⚔️ Царская вахта.")
         return
     msg = bot.send_message(message.chat.id, "📅 <b>А когда изволишь вернуться? (ДД.ММ.ГГГГ)</b>", parse_mode="HTML")
     bot.register_next_step_handler(msg, save_vakhta, start_date)
@@ -265,13 +339,82 @@ def save_vakhta(message, start_date):
     try:
         datetime.strptime(end_date, "%d.%m.%Y")
     except:
-        bot.send_message(message.chat.id, "❌ Смилуйся, государь, формат не тот. Начни заново /set_vakhta")
+        bot.send_message(message.chat.id, "❌ Смилуйся, государь, формат не тот. Начни заново через ⚔️ Царская вахта.")
         return
     conn = sqlite3.connect(DB_PATH)
     c = conn.cursor()
     c.execute("REPLACE INTO vakhta (id, start_date, end_date) VALUES (1, ?, ?)", (start_date, end_date))
     conn.commit(); conn.close()
     bot.send_message(message.chat.id, f"✅ Сроки вахты начертаны: с {start_date} по {end_date}!", reply_markup=get_main_menu())
+
+@bot.callback_query_handler(func=lambda call: call.data == "setup_vakhta_schedule" and call.message.chat.id == ADMIN_ID)
+def setup_vakhta_schedule_cb(call):
+    msg = bot.send_message(call.message.chat.id, "⏰ <b>Во сколько начинается служба? (ЧЧ:ММ)</b>\nНапример: 08:00", parse_mode="HTML")
+    bot.register_next_step_handler(msg, process_w_start)
+
+def process_w_start(message):
+    w_start = message.text.strip()
+    try:
+        datetime.strptime(w_start, "%H:%M")
+        user_data[message.chat.id] = {'w_start': w_start}
+        msg = bot.send_message(message.chat.id, "⏰ <b>Во сколько заканчивается? (ЧЧ:ММ)</b>\nНапример: 20:00", parse_mode="HTML")
+        bot.register_next_step_handler(msg, process_w_end)
+    except:
+        bot.send_message(message.chat.id, "❌ Смилуйся, государь, формат не тот. Начни заново через ⚔️ Царская вахта.")
+        
+def process_w_end(message):
+    w_end = message.text.strip()
+    try:
+        datetime.strptime(w_end, "%H:%M")
+        user_data[message.chat.id]['w_end'] = w_end
+        msg = bot.send_message(message.chat.id, "📅 <b>В какие дни изволишь служить?</b>\nНапиши дни словами через запятую. Например: <b>Пн, Вт, Ср, Чт, Пт, Сб</b> (или цифрами от 1 до 7).", parse_mode="HTML")
+        bot.register_next_step_handler(msg, process_w_days)
+    except:
+        bot.send_message(message.chat.id, "❌ Смилуйся, государь, формат не тот. Начни заново через ⚔️ Царская вахта.")
+
+def process_w_days(message):
+    raw_text = message.text.strip().lower().replace(',', ' ').replace('.', ' ').split()
+    
+    days_map = {
+        'пн': '1', 'вт': '2', 'ср': '3', 'чт': '4', 'пт': '5', 'сб': '6', 'вс': '7',
+        'понедельник': '1', 'вторник': '2', 'среда': '3', 'четверг': '4', 'пятница': '5', 'суббота': '6', 'воскресенье': '7'
+    }
+    
+    valid_days = []
+    for d in raw_text:
+        if d in days_map:
+            valid_days.append(days_map[d])
+        elif d.isdigit() and 1 <= int(d) <= 7:
+            valid_days.append(d)
+            
+    unique_days = []
+    for d in valid_days:
+        if d not in unique_days:
+            unique_days.append(d)
+
+    if not unique_days:
+        bot.send_message(message.chat.id, "❌ Смилуйся, государь, не разобрал дни. Начни заново через ⚔️ Царская вахта.")
+        return
+
+    w_days = ",".join(unique_days)
+    w_start = user_data[message.chat.id].get('w_start', '00:00')
+    w_end = user_data[message.chat.id].get('w_end', '00:00')
+    
+    conn = sqlite3.connect(DB_PATH)
+    c = conn.cursor()
+    c.execute("SELECT id FROM vakhta WHERE id = 1")
+    if c.fetchone():
+        c.execute("UPDATE vakhta SET w_start=?, w_end=?, w_days=? WHERE id=1", (w_start, w_end, w_days))
+    else:
+        c.execute("INSERT INTO vakhta (id, w_start, w_end, w_days) VALUES (1, ?, ?, ?)", (w_start, w_end, w_days))
+    conn.commit()
+    conn.close()
+    
+    days_map_out = {"1": "Пн", "2": "Вт", "3": "Ср", "4": "Чт", "5": "Пт", "6": "Сб", "7": "Вс"}
+    days_str = ", ".join([days_map_out[d] for d in unique_days])
+    
+    bot.send_message(message.chat.id, f"✅ График службы начертан: с {w_start} до {w_end}, дни: {days_str}.", reply_markup=get_main_menu())
+    if message.chat.id in user_data: del user_data[message.chat.id]
 
 # --- РАСХОДЫ ---
 @bot.message_handler(func=lambda m: m.text == "💸 Траты из казны" and m.chat.id == ADMIN_ID)
@@ -324,7 +467,113 @@ def vakhta_stats(message):
     except Exception as e:
         bot.send_message(message.chat.id, f"❌ Смилуйся, государь, летописи запутались. Ошибка: {e}")
 
-# --- СМЕНА ЗАВТРА ---
+# --- ПРЕДСКАЗАНИЕ ПРИБЫТКА ---
+@bot.message_handler(func=lambda m: m.text == "🔮 Предсказание прибытка" and m.chat.id == ADMIN_ID)
+def vakhta_forecast(message):
+    conn = sqlite3.connect(DB_PATH)
+    c = conn.cursor()
+    c.execute("SELECT start_date, end_date FROM vakhta WHERE id = 1")
+    row = c.fetchone()
+    if not row:
+        bot.send_message(message.chat.id, "❌ Государь, сроки вахты не установлены. Изволь сначала задать их через ⚔️ Царская вахта.", parse_mode="HTML")
+        conn.close()
+        return
+    start_date, end_date = row
+    try:
+        start_dt = datetime.strptime(start_date, "%d.%m.%Y")
+        end_dt = datetime.strptime(end_date, "%d.%m.%Y")
+        today = datetime.now()
+        
+        total_days = (end_dt - start_dt).days
+        days_passed = (today - start_dt).days
+        
+        if days_passed <= 0:
+            bot.send_message(message.chat.id, "🔮 Государь, служба только начинается. Изволь подождать пару дней для предсказания.", parse_mode="HTML")
+            conn.close()
+            return
+            
+        if days_passed > total_days:
+            days_passed = total_days
+
+        c.execute("SELECT SUM(pay) FROM shifts WHERE date >= ?", (start_date,))
+        earned = c.fetchone()[0] or 0
+        c.execute("SELECT SUM(amount) FROM expenses WHERE date >= ?", (start_date,))
+        spent = c.fetchone()[0] or 0
+        conn.close()
+        
+        net_earned = earned - spent
+        avg_daily = net_earned / days_passed
+        forecast = int(avg_daily * total_days)
+        
+        text = (f"🔮 <b>Предсказание прибытка</b>\n\n"
+                f"Государь, за {days_passed} дней службы ты изволил накопить <b>{int(net_earned)} ₽</b>.\n"
+                f"Если будешь служить так же, к концу вахты (ещё {total_days - days_passed} дней) "
+                f"твой прибыток составит примерно: <b>{forecast} ₽</b>.")
+        bot.send_message(message.chat.id, text, parse_mode="HTML")
+    except Exception as e:
+        bot.send_message(message.chat.id, f"❌ Смилуйся, государь, но звёзды молчат. Ошибка: {e}")
+
+# --- ДОЛГОВАЯ КНИГА ---
+@bot.message_handler(func=lambda m: m.text == "📕 Долговая книга" and m.chat.id == ADMIN_ID)
+def debt_menu(message):
+    conn = sqlite3.connect(DB_PATH)
+    c = conn.cursor()
+    c.execute("SELECT id, type, name, amount FROM debts")
+    debts = c.fetchall()
+    conn.close()
+    
+    i_owe = sum(d[3] for d in debts if d[1] == 'i_owe')
+    they_owe = sum(d[3] for d in debts if d[1] == 'they_owe')
+    
+    text = f"📕 <b>Долговая книга</b>\n\n"
+    text += f"🔴 Ты должен: <b>{i_owe} ₽</b>\n"
+    text += f"🟢 Тебе должны: <b>{they_owe} ₽</b>\n\n"
+    
+    if not debts:
+        text += "Летопись долгов пуста, государь."
+    else:
+        text += "<b>Подробности:</b>\n"
+        for d in debts:
+            if d[1] == 'i_owe':
+                text += f"🔴 Я должен {d[2]} — {d[3]} ₽\n"
+            else:
+                text += f"🟢 {d[2]} должен мне — {d[3]} ₽\n"
+
+    markup = types.InlineKeyboardMarkup(row_width=1)
+    markup.add(types.InlineKeyboardButton("➕ Занял я (должен)", callback_data="debt_add_i_owe"))
+    markup.add(types.InlineKeyboardButton("➕ Дали мне (должны)", callback_data="debt_add_they_owe"))
+    
+    bot.send_message(message.chat.id, text, parse_mode="HTML", reply_markup=markup)
+
+@bot.callback_query_handler(func=lambda c: c.data.startswith('debt_add_') and c.message.chat.id == ADMIN_ID)
+def add_debt_start(call):
+    debt_type = "i_owe" if call.data == "debt_add_i_owe" else "they_owe"
+    user_data[call.message.chat.id] = {'debt_type': debt_type}
+    label = "кому изволил задолжать" if debt_type == "i_owe" else "кто изволил задолжать тебе"
+    msg = bot.send_message(call.message.chat.id, f"📝 <b>Напиши имя того, {label}?</b>", parse_mode="HTML")
+    bot.register_next_step_handler(msg, process_debt_name)
+
+def process_debt_name(message):
+    user_data[message.chat.id]['debt_name'] = message.text.strip()
+    msg = bot.send_message(message.chat.id, "💰 <b>Сколько монет?</b>", parse_mode="HTML")
+    bot.register_next_step_handler(msg, process_debt_amount)
+
+def process_debt_amount(message):
+    try:
+        amount = int(message.text)
+        d_type = user_data[message.chat.id]['debt_type']
+        d_name = user_data[message.chat.id]['debt_name']
+        
+        conn = sqlite3.connect(DB_PATH)
+        conn.cursor().execute("INSERT INTO debts (type, name, amount) VALUES (?, ?, ?)", (d_type, d_name, amount))
+        conn.commit(); conn.close()
+        
+        bot.send_message(message.chat.id, f"✅ Запись в долговую книгу внесена!", reply_markup=get_main_menu())
+        if message.chat.id in user_data: del user_data[message.chat.id]
+    except:
+        bot.send_message(message.chat.id, "❌ Смилуйся, государь, но мне нужны только цифры.", reply_markup=get_main_menu())
+
+# --- СЛУЖБА ЗАВТРА ---
 @bot.message_handler(func=lambda m: m.text == "💣 Служба завтра" and m.chat.id == ADMIN_ID)
 def remind_shift_tomorrow(message):
     tomorrow = (datetime.now() + timedelta(days=1)).strftime("%Y-%m-%d")
@@ -343,20 +592,20 @@ def add_task(message):
         conn = sqlite3.connect(DB_PATH)
         conn.cursor().execute("INSERT INTO tasks (text) VALUES (?)", (text,))
         conn.commit(); conn.close()
-        bot.send_message(message.chat.id, "📜 <b>Указ принят!</b> Твой слуга внёс его в список.", parse_mode="HTML")
+        bot.send_message(message.chat.id, "🪶 <b>Указ принят!</b> Твой слуга внёс его в список.", parse_mode="HTML")
     else: bot.send_message(message.chat.id, "Царь-батюшка, соизволь написать текст указа после /add")
 
-@bot.message_handler(func=lambda m: m.text == "📜 Список указов" and m.chat.id == ADMIN_ID)
+@bot.message_handler(func=lambda m: m.text == "🪶 Список указов" and m.chat.id == ADMIN_ID)
 def show_tasks(message):
     conn = sqlite3.connect(DB_PATH)
     c = conn.cursor()
     c.execute("SELECT id, text FROM tasks WHERE status = 0")
     tasks = c.fetchall(); conn.close()
     if not tasks:
-        bot.send_message(message.chat.id, "📜 <b>Список указов пуст.</b> Напиши /add [текст], чтобы издать новый.", parse_mode="HTML")
+        bot.send_message(message.chat.id, "🪶 <b>Список указов пуст.</b> Напиши /add [текст], чтобы издать новый.", parse_mode="HTML")
         return
     markup = types.InlineKeyboardMarkup(row_width=1)
-    text = "📜 <b>Твои указы на сегодня:</b>\n\n"
+    text = "🪶 <b>Твои указы на сегодня:</b>\n\n"
     for t in tasks:
         text += f"⚔️ {t[1]}\n"
         markup.add(types.InlineKeyboardButton(f"✅ Исполнено: {t[1][:15]}", callback_data=f"done_{t[0]}"))
@@ -431,38 +680,12 @@ def check_reminders():
         except: pass
         time.sleep(30)
 
-# --- ЗАГЛУШКА ДЛЯ RENDER ---
-class DummyServer(BaseHTTPRequestHandler):
-    def do_GET(self):
-        self.send_response(200)
-        self.end_headers()
-        self.wfile.write(b"OK")
-
-def run_server():
-    port = int(os.environ.get("PORT", 8080))
-    server = HTTPServer(('0.0.0.0', port), DummyServer)
-    server.serve_forever()
-
-def main():
-    print("=== СТАРТ БОТА ===")
-    init_db()
-    threading.Thread(target=check_reminders, daemon=True).start()
-    threading.Thread(target=run_server, daemon=True).start()
-    
-    print("=== ОЧИСТКА ВЕБХУКА ===")
-    bot.remove_webhook()
-    try:
-        bot.delete_webhook(drop_pending_updates=True)
-    except Exception as e:
-        print(f"Очистка не удалась: {e}")
-
-    print("=== СЕРВЕР ЗАПУЩЕН ===")
-    time.sleep(3)
-    
-    try:
-        bot.infinity_polling(timeout=20, long_polling_timeout=10, skip_pending=True)
-    except Exception as e:
-        print(f"!!! ОШИБКА БОТА !!! {traceback.format_exc()}")
-
-if __name__ == "__main__":
-    main()
+# --- УТРЕННИЙ ДОКЛАД ---
+def morning_report():
+    while True:
+        try:
+            now = datetime.now()
+            today_str = now.strftime("%Y-%m-%d")
+            if now.hour == 7 and now.minute == 0:
+                conn = sqlite3.connect(DB_PATH)
+                c = conn.
