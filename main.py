@@ -2,7 +2,7 @@ import os
 import html
 import threading
 import sqlite3
-from datetime import datetime
+from datetime import datetime, timedelta
 import time
 import traceback
 import requests
@@ -67,6 +67,8 @@ def init_db():
     c.execute('''CREATE TABLE IF NOT EXISTS shifts (id INTEGER PRIMARY KEY AUTOINCREMENT, date TEXT, pay INTEGER)''')
     c.execute('''CREATE TABLE IF NOT EXISTS reminders (id TEXT PRIMARY KEY, text TEXT, time TEXT, is_sent INTEGER DEFAULT 0)''')
     c.execute('''CREATE TABLE IF NOT EXISTS notes (id INTEGER PRIMARY KEY AUTOINCREMENT, text TEXT)''')
+    c.execute('''CREATE TABLE IF NOT EXISTS vakhta (id INTEGER PRIMARY KEY CHECK (id = 1), start_date TEXT, end_date TEXT)''')
+    c.execute('''CREATE TABLE IF NOT EXISTS expenses (id INTEGER PRIMARY KEY AUTOINCREMENT, date TEXT, amount INTEGER, description TEXT)''')
     conn.commit()
     conn.close()
 
@@ -78,7 +80,11 @@ def get_main_menu():
         types.KeyboardButton("🕯️ Царская сводка"),
         types.KeyboardButton("📜 Список указов"),
         types.KeyboardButton("📖 Рукописи"),
-        types.KeyboardButton("🕊️ Гонцы")
+        types.KeyboardButton("🕊️ Гонцы"),
+        types.KeyboardButton("⚔️ Царская вахта"),
+        types.KeyboardButton("💸 Траты из казны"),
+        types.KeyboardButton("💰 Прибыток за вахту"),
+        types.KeyboardButton("💣 Служба завтра")
     )
     return markup
 
@@ -88,13 +94,17 @@ def deny_access(message):
 
 @bot.message_handler(commands=['start', 'menu'], func=lambda m: m.chat.id == ADMIN_ID)
 def start(message):
-    text = ("👑 <b>Да здравствует Царь-батюшка!</b>\n\nТвой верный слуга приветствует тебя.\n\n"
+    text = ("👑 <b>Да здравствует Царь-батюшка!</b>\n\nТвой верный слуга приветствует тебя. Изволь выбрать, что прикажешь:\n\n"
             "🏰 <b>Пополнить казну</b> — внести данные о службе.\n"
-            "🧠 <b>Спросить советника</b> — просто напиши мне любой текст, и я отвечу.\n"
-            "🕯️ <b>Царская сводка</b> — узреть статистику.\n"
+            "🧠 <b>Спросить советника</b> — вопросить мудрость.\n"
+            "🕯️ <b>Царская сводка</b> — узреть статистику за всё время.\n"
             "📜 <b>Список указов</b> — добавить задачу (через /add).\n"
             "📖 <b>Рукописи</b> — записать заметку (через /note).\n"
-            "🕊️ <b>Гонцы</b> — поставить напоминание (через /remind).")
+            "🕊️ <b>Гонцы</b> — поставить напоминание (через /remind).\n"
+            "⚔️ <b>Царская вахта</b> — узреть сроки службы.\n"
+            "💸 <b>Траты из казны</b> — записать издержки.\n"
+            "💰 <b>Прибыток за вахту</b> — узреть чистую монету.\n"
+            "💣 <b>Служба завтра</b> — послать гонца с напоминанием.")
     bot.send_message(message.chat.id, text, parse_mode="HTML", reply_markup=get_main_menu())
 
 @bot.message_handler(content_types=['voice'])
@@ -102,67 +112,51 @@ def handle_voice(message):
     if message.chat.id == ADMIN_ID:
         bot.send_message(message.chat.id, "🎙️ Государь, голосовые пока в опале, изволь писать текстом.")
 
+# --- ИИ ---
 @bot.message_handler(func=lambda m: m.chat.id == ADMIN_ID and m.text and not m.text.startswith('/') and m.text not in [
     "🏰 Пополнить казну", "🧠 Спросить советника", "🕯️ Царская сводка", 
-    "📜 Список указов", "📖 Рукописи", "🕊️ Гонцы"
+    "📜 Список указов", "📖 Рукописи", "🕊️ Гонцы", "⚔️ Царская вахта", 
+    "💸 Траты из казны", "💰 Прибыток за вахту", "💣 Служба завтра"
 ])
 def process_ai_question(message):
-    # Убрали reply_to, чтобы бот не делал цитату с твоим именем
-    msg = bot.send_message(message.chat.id, "⏳ <i>Ищу ответ...</i>", parse_mode="HTML")
+    msg = bot.send_message(message.chat.id, "⏳ <i>Слуга твой ищет ответ в древних свитках...</i>", parse_mode="HTML")
     try:
-        headers = {
-            "Authorization": f"Bearer {OPENROUTER_API_KEY}",
-            "Content-Type": "application/json"
-        }
-        
+        headers = {"Authorization": f"Bearer {OPENROUTER_API_KEY}", "Content-Type": "application/json"}
         payload = {
             "model": MODEL_NAME,
-            "messages": [
-                {"role": "system", "content": AI_PERSONA},
-                {"role": "user", "content": message.text}
-            ],
+            "messages": [{"role": "system", "content": AI_PERSONA}, {"role": "user", "content": message.text}],
             "max_tokens": 1000
         }
-        
         response = requests.post(OPENROUTER_URL, headers=headers, json=payload, timeout=60)
-        
         if response.status_code != 200:
-            err_text = response.text[:200]
-            bot.edit_message_text(f"❌ Ошибка API ({response.status_code}): {html.escape(err_text)}", chat_id=message.chat.id, message_id=msg.message_id, parse_mode="HTML")
+            bot.edit_message_text(f"❌ Смилуйся, государь. Ошибка ({response.status_code}): {html.escape(response.text[:200])}", chat_id=message.chat.id, message_id=msg.message_id, parse_mode="HTML")
             return
-
         data = response.json()
-        
-        reply_text = data['choices'][0]['message']['content']
-        if not reply_text:
-            reply_text = "Смилуйся, государь, но летописи молчат."
-
+        reply_text = data['choices'][0]['message']['content'] or "Смилуйся, государь, но летописи молчат."
         display_text = reply_text if len(reply_text) <= 3500 else reply_text[:3500] + "..."
-        
-        # Отправляем ответ без цитаты
         bot.edit_message_text(html.escape(display_text), chat_id=message.chat.id, message_id=msg.message_id, parse_mode="HTML")
-        
     except Exception as e:
-        bot.edit_message_text(f"❌ Ошибка: {html.escape(str(e)[:150])}", chat_id=message.chat.id, message_id=msg.message_id, parse_mode="HTML")
+        bot.edit_message_text(f"❌ Смилуйся, государь. Ошибка: {html.escape(str(e)[:150])}", chat_id=message.chat.id, message_id=msg.message_id, parse_mode="HTML")
 
 @bot.message_handler(func=lambda m: m.text == "🧠 Спросить советника" and m.chat.id == ADMIN_ID)
 def ask_ai_start(message):
-    bot.send_message(message.chat.id, "🧠 <b>Изволь задать вопрос!</b>\n\nПросто напиши мне сообщение, и я отвечу.", parse_mode="HTML")
+    bot.send_message(message.chat.id, "🧠 <b>Изволь задать вопрос, государь.</b> Твой слуга внимает.", parse_mode="HTML")
 
+# --- КАЗНА ---
 @bot.message_handler(func=lambda m: m.text == "🏰 Пополнить казну" and m.chat.id == ADMIN_ID)
 def start_shift_report(message):
     user_data[message.chat.id] = {}
-    msg = bot.send_message(message.chat.id, "⚖️ <b>Сколько часов отслужили?</b>", parse_mode="HTML")
+    msg = bot.send_message(message.chat.id, "⚖️ <b>Царь-батюшка, приступим к учёту казны.</b>\n\nСколько часов изволили отслужить во благо?", parse_mode="HTML")
     bot.register_next_step_handler(msg, process_hours)
 
 def process_hours(message):
     try:
         hours = float(message.text.replace(',', '.'))
         user_data[message.chat.id]['hours'] = hours
-        msg = bot.send_message(message.chat.id, "📦 <b>Сколько доставок?</b>", parse_mode="HTML")
+        msg = bot.send_message(message.chat.id, "📦 <b>А сколько доставок совершили, государь?</b>", parse_mode="HTML")
         bot.register_next_step_handler(msg, process_orders)
     except:
-        bot.send_message(message.chat.id, "❌ Нужны цифры.", reply_markup=get_main_menu())
+        bot.send_message(message.chat.id, "❌ Смилуйся, государь, но мне нужны только цифры.", reply_markup=get_main_menu())
 
 def process_orders(message):
     try:
@@ -179,9 +173,9 @@ def process_orders(message):
             types.InlineKeyboardButton("💎 Все надбавки", callback_data="shift_all"),
             types.InlineKeyboardButton("⚖️ Без надбавок", callback_data="shift_save_base")
         )
-        bot.send_message(message.chat.id, f"📊 База: {int(base_pay)} ₽\nДобавить надбавки?", parse_mode="HTML", reply_markup=markup)
+        bot.send_message(message.chat.id, f"📊 <b>Предварительный расчёт:</b>\nБаза: {int(base_pay)} ₽\n\nИзволите добавить надбавки?", parse_mode="HTML", reply_markup=markup)
     except:
-        bot.send_message(message.chat.id, "❌ Нужны цифры.", reply_markup=get_main_menu())
+        bot.send_message(message.chat.id, "❌ Смилуйся, государь, но мне нужны только цифры.", reply_markup=get_main_menu())
 
 @bot.callback_query_handler(func=lambda c: c.data.startswith('shift_') and c.message.chat.id == ADMIN_ID)
 def process_shift_bonus(call):
@@ -195,18 +189,18 @@ def process_shift_bonus(call):
     elif call.data == "shift_all": bonus, bonus_text = (orders * 10) + (hours * 15) + (hours * 10), "Все"
     elif call.data == "shift_save_base":
         save_shift_to_db(call.message.chat.id, int(base_pay))
-        bot.edit_message_text(f"✅ Записано: {int(base_pay)} ₽", chat_id=call.message.chat.id, message_id=call.message.message_id, parse_mode="HTML")
+        bot.edit_message_text(f"✅ <b>Летопись обновлена!</b>\n🏰 В казну добавлено {int(base_pay)} ₽. Твой слуга служит верой и правдой!", chat_id=call.message.chat.id, message_id=call.message.message_id, parse_mode="HTML")
         return
     total = int(base_pay + bonus)
-    markup = types.InlineKeyboardMarkup().add(types.InlineKeyboardButton("✅ Сохранить", callback_data=f"confirm_save_{total}"))
-    bot.edit_message_text(f"⚖️ Итого: {total} ₽ ({bonus_text})", chat_id=call.message.chat.id, message_id=call.message.message_id, reply_markup=markup)
+    markup = types.InlineKeyboardMarkup().add(types.InlineKeyboardButton("✅ Начертать в летописи", callback_data=f"confirm_save_{total}"))
+    bot.edit_message_text(f"⚖️ <b>Итог службы:</b>\n➕ {bonus_text} (+{int(bonus)} ₽)\n🏰 <b>ИТОГО: {total} ₽</b>", chat_id=call.message.chat.id, message_id=call.message.message_id, parse_mode="HTML", reply_markup=markup)
 
 @bot.callback_query_handler(func=lambda c: c.data.startswith('confirm_save_') and c.message.chat.id == ADMIN_ID)
 def confirm_save(call):
     try:
         total = int(call.data.split('_')[2])
         save_shift_to_db(call.message.chat.id, total)
-        bot.edit_message_text(f"✅ Записано: {total} ₽", chat_id=call.message.chat.id, message_id=call.message.message_id)
+        bot.edit_message_text(f"✅ <b>Служба записана в летопись!</b>\n🏰 В казну добавлено {total} ₽.", chat_id=call.message.chat.id, message_id=call.message.message_id, parse_mode="HTML")
     except: pass
 
 def save_shift_to_db(chat_id, pay):
@@ -215,6 +209,7 @@ def save_shift_to_db(chat_id, pay):
     conn.commit(); conn.close()
     if chat_id in user_data: del user_data[chat_id]
 
+# --- СВОДКА (общая) ---
 @bot.message_handler(func=lambda m: m.text == "🕯️ Царская сводка" and m.chat.id == ADMIN_ID)
 def show_stats(message):
     conn = sqlite3.connect(DB_PATH)
@@ -224,8 +219,123 @@ def show_stats(message):
     c.execute("SELECT COUNT(id) FROM tasks WHERE status = 0")
     active_tasks = c.fetchone()[0]
     conn.close()
-    bot.send_message(message.chat.id, f"🕯️ В казне: {total_pay or 0} ₽\nСмен: {total_shifts or 0}\nУказов: {active_tasks}", parse_mode="HTML")
+    bot.send_message(message.chat.id, f"🕯️ <b>Сводка из царских архивов:</b>\n\n🏦 Всего в казне: {total_pay or 0} ₽\n📅 Отработано смен: {total_shifts or 0}\n📜 Указов в ожидании: {active_tasks}", parse_mode="HTML")
+                            # --- ВАХТА ---
+@bot.message_handler(func=lambda m: m.text == "⚔️ Царская вахта" and m.chat.id == ADMIN_ID)
+def vakhta_menu(message):
+    conn = sqlite3.connect(DB_PATH)
+    c = conn.cursor()
+    c.execute("SELECT start_date, end_date FROM vakhta WHERE id = 1")
+    row = c.fetchone()
+    conn.close()
+    if row:
+        start, end = row
+        try:
+            d2 = datetime.strptime(end, "%d.%m.%Y")
+            today = datetime.now()
+            left = (d2 - today).days
+            if left < 0:
+                status = "Вахта завершена, государь. Изволь отдохнуть."
+            else:
+                status = f"Осталось нести службу: <b>{left} дней</b>."
+            text = f"⚔️ <b>Текущая вахта:</b>\nС {start} по {end}\n{status}\n\nИзволишь переустановить сроки? Напиши /set_vakhta"
+        except:
+            text = "❌ Смилуйся, государь, но в датах вышла путаница. Переустанови через /set_vakhta"
+    else:
+        text = "⚔️ Государь, сроки вахты ещё не начертаны.\nИзволь написать /set_vakhta, чтобы задать даты."
+    bot.send_message(message.chat.id, text, parse_mode="HTML")
 
+@bot.message_handler(commands=['set_vakhta'], func=lambda m: m.chat.id == ADMIN_ID)
+def set_vakhta_start(message):
+    msg = bot.send_message(message.chat.id, "📅 <b>Соизволь молвить, с какого дня начинается служба? (ДД.ММ.ГГГГ)</b>", parse_mode="HTML")
+    bot.register_next_step_handler(msg, set_vakhta_end)
+
+def set_vakhta_end(message):
+    start_date = message.text.strip()
+    try:
+        datetime.strptime(start_date, "%d.%m.%Y")
+    except:
+        bot.send_message(message.chat.id, "❌ Смилуйся, государь, формат не тот. Начни заново /set_vakhta")
+        return
+    msg = bot.send_message(message.chat.id, "📅 <b>А когда изволишь вернуться? (ДД.ММ.ГГГГ)</b>", parse_mode="HTML")
+    bot.register_next_step_handler(msg, save_vakhta, start_date)
+
+def save_vakhta(message, start_date):
+    end_date = message.text.strip()
+    try:
+        datetime.strptime(end_date, "%d.%m.%Y")
+    except:
+        bot.send_message(message.chat.id, "❌ Смилуйся, государь, формат не тот. Начни заново /set_vakhta")
+        return
+    conn = sqlite3.connect(DB_PATH)
+    c = conn.cursor()
+    c.execute("REPLACE INTO vakhta (id, start_date, end_date) VALUES (1, ?, ?)", (start_date, end_date))
+    conn.commit(); conn.close()
+    bot.send_message(message.chat.id, f"✅ Сроки вахты начертаны: с {start_date} по {end_date}!", reply_markup=get_main_menu())
+
+# --- РАСХОДЫ ---
+@bot.message_handler(func=lambda m: m.text == "💸 Траты из казны" and m.chat.id == ADMIN_ID)
+def expense_menu(message):
+    msg = bot.send_message(message.chat.id, "💰 <b>Изволь назвать, сколько монет изволил потратить?</b>", parse_mode="HTML")
+    bot.register_next_step_handler(msg, process_expense_amount)
+
+def process_expense_amount(message):
+    try:
+        amount = int(message.text)
+        user_data[message.chat.id] = {'expense_amount': amount}
+        msg = bot.send_message(message.chat.id, "📝 <b>На какие нужды изволил потратить?</b>", parse_mode="HTML")
+        bot.register_next_step_handler(msg, process_expense_desc)
+    except:
+        bot.send_message(message.chat.id, "❌ Смилуйся, государь, но мне нужны только цифры.", reply_markup=get_main_menu())
+
+def process_expense_desc(message):
+    desc = message.text.strip()
+    amount = user_data[message.chat.id].get('expense_amount', 0)
+    conn = sqlite3.connect(DB_PATH)
+    conn.cursor().execute("INSERT INTO expenses (date, amount, description) VALUES (?, ?, ?)", (datetime.now().strftime("%d.%m.%Y"), amount, desc))
+    conn.commit(); conn.close()
+    bot.send_message(message.chat.id, f"✅ Записано: {amount} ₽ на «{html.escape(desc)}».", parse_mode="HTML", reply_markup=get_main_menu())
+    if message.chat.id in user_data: del user_data[message.chat.id]
+
+# --- СВОДКА ЗА ВАХТУ ---
+@bot.message_handler(func=lambda m: m.text == "💰 Прибыток за вахту" and m.chat.id == ADMIN_ID)
+def vakhta_stats(message):
+    conn = sqlite3.connect(DB_PATH)
+    c = conn.cursor()
+    c.execute("SELECT start_date, end_date FROM vakhta WHERE id = 1")
+    row = c.fetchone()
+    if not row:
+        bot.send_message(message.chat.id, "❌ Государь, сроки вахты не установлены. Изволь сначала задать их через ⚔️ Царская вахта.", parse_mode="HTML")
+        conn.close()
+        return
+    start_date, end_date = row
+    try:
+        c.execute("SELECT SUM(pay) FROM shifts WHERE date >= ?", (start_date,))
+        earned = c.fetchone()[0] or 0
+        c.execute("SELECT SUM(amount) FROM expenses WHERE date >= ?", (start_date,))
+        spent = c.fetchone()[0] or 0
+        conn.close()
+        net = earned - spent
+        text = (f"💰 <b>Итог службы за вахту</b> (с {start_date}):\n\n"
+                f"🏦 В казну прибыло: <b>{earned} ₽</b>\n"
+                f"💸 Из казны убыло: <b>{spent} ₽</b>\n"
+                f"📈 Чистый доход: <b>{net} ₽</b>")
+        bot.send_message(message.chat.id, text, parse_mode="HTML")
+    except Exception as e:
+        bot.send_message(message.chat.id, f"❌ Смилуйся, государь, летописи запутались. Ошибка: {e}")
+
+# --- СМЕНА ЗАВТРА ---
+@bot.message_handler(func=lambda m: m.text == "💣 Служба завтра" and m.chat.id == ADMIN_ID)
+def remind_shift_tomorrow(message):
+    tomorrow = (datetime.now() + timedelta(days=1)).strftime("%Y-%m-%d")
+    remind_time = f"{tomorrow} 18:00"
+    text = "Гонец донес: завтра изволишь нести службу. Не изволь опоздать, государь!"
+    conn = sqlite3.connect(DB_PATH)
+    conn.cursor().execute("INSERT INTO reminders (id, text, time) VALUES (?, ?, ?)", (str(time.time()), text, remind_time))
+    conn.commit(); conn.close()
+    bot.send_message(message.chat.id, f"🕊️ Гонец отправлен. Извещу тебя завтра о службе.", reply_markup=get_main_menu())
+
+# --- УКАЗЫ ---
 @bot.message_handler(commands=['add'], func=lambda m: m.chat.id == ADMIN_ID)
 def add_task(message):
     text = message.text.replace('/add', '').strip()
@@ -233,8 +343,8 @@ def add_task(message):
         conn = sqlite3.connect(DB_PATH)
         conn.cursor().execute("INSERT INTO tasks (text) VALUES (?)", (text,))
         conn.commit(); conn.close()
-        bot.send_message(message.chat.id, "📜 Указ принят!")
-    else: bot.send_message(message.chat.id, "Текст после /add")
+        bot.send_message(message.chat.id, "📜 <b>Указ принят!</b> Твой слуга внёс его в список.", parse_mode="HTML")
+    else: bot.send_message(message.chat.id, "Царь-батюшка, соизволь написать текст указа после /add")
 
 @bot.message_handler(func=lambda m: m.text == "📜 Список указов" and m.chat.id == ADMIN_ID)
 def show_tasks(message):
@@ -243,14 +353,14 @@ def show_tasks(message):
     c.execute("SELECT id, text FROM tasks WHERE status = 0")
     tasks = c.fetchall(); conn.close()
     if not tasks:
-        bot.send_message(message.chat.id, "📜 Пусто.")
+        bot.send_message(message.chat.id, "📜 <b>Список указов пуст.</b> Напиши /add [текст], чтобы издать новый.", parse_mode="HTML")
         return
     markup = types.InlineKeyboardMarkup(row_width=1)
-    text = "📜 Указы:\n"
+    text = "📜 <b>Твои указы на сегодня:</b>\n\n"
     for t in tasks:
         text += f"⚔️ {t[1]}\n"
-        markup.add(types.InlineKeyboardButton(f"✅ {t[1][:15]}", callback_data=f"done_{t[0]}"))
-    bot.send_message(message.chat.id, text, reply_markup=markup)
+        markup.add(types.InlineKeyboardButton(f"✅ Исполнено: {t[1][:15]}", callback_data=f"done_{t[0]}"))
+    bot.send_message(message.chat.id, text, parse_mode="HTML", reply_markup=markup)
 
 @bot.callback_query_handler(func=lambda c: c.data.startswith('done_') and c.message.chat.id == ADMIN_ID)
 def mark_done(call):
@@ -258,9 +368,11 @@ def mark_done(call):
     conn = sqlite3.connect(DB_PATH)
     conn.cursor().execute("UPDATE tasks SET status = 1 WHERE id = ?", (task_id,))
     conn.commit(); conn.close()
-    bot.answer_callback_query(call.id, "Готово!")
+    bot.answer_callback_query(call.id, "Слушаюсь!")
     bot.delete_message(call.message.chat.id, call.message.message_id)
+    bot.send_message(call.message.chat.id, "✅ <b>Указ исполнен.</b>", parse_mode="HTML")
 
+# --- РУКОПИСИ ---
 @bot.message_handler(commands=['note'], func=lambda m: m.chat.id == ADMIN_ID)
 def add_note(message):
     text = message.text.replace('/note', '').strip()
@@ -268,8 +380,8 @@ def add_note(message):
         conn = sqlite3.connect(DB_PATH)
         conn.cursor().execute("INSERT INTO notes (text) VALUES (?)", (text,))
         conn.commit(); conn.close()
-        bot.send_message(message.chat.id, "📖 Записано.")
-    else: bot.send_message(message.chat.id, "Текст после /note")
+        bot.send_message(message.chat.id, "📖 <b>Запись сохранена.</b>", parse_mode="HTML")
+    else: bot.send_message(message.chat.id, "Царь-батюшка, напиши текст после /note")
 
 @bot.message_handler(func=lambda m: m.text == "📖 Рукописи" and m.chat.id == ADMIN_ID)
 def show_notes(message):
@@ -277,22 +389,23 @@ def show_notes(message):
     c = conn.cursor()
     c.execute("SELECT text FROM notes")
     notes = c.fetchall(); conn.close()
-    if not notes: bot.send_message(message.chat.id, "📖 Пусто.")
-    else: bot.send_message(message.chat.id, "📖 Записи:\n\n" + "\n".join([f"🖋️ {n[0]}" for n in notes]))
+    if not notes: bot.send_message(message.chat.id, "📖 <b>Рукописи пусты.</b> Начертать новое: /note [текст]", parse_mode="HTML")
+    else: bot.send_message(message.chat.id, "📖 <b>Твои рукописи:</b>\n\n" + "\n".join([f"🖋️ {html.escape(n[0])}" for n in notes]), parse_mode="HTML")
 
+# --- НАПОМИНАНИЯ ---
 @bot.message_handler(commands=['remind'], func=lambda m: m.chat.id == ADMIN_ID)
 def add_reminder(message):
     parts = message.text.replace('/remind', '').strip().split(' ', 2)
     if len(parts) < 3:
-        bot.send_message(message.chat.id, "Формат: /remind ГГГГ-ММ-ДД ЧЧ:ММ Текст")
+        bot.send_message(message.chat.id, "Изволь писать так: /remind ГГГГ-ММ-ДД ЧЧ:ММ Текст")
         return
     try:
         datetime.strptime(f"{parts[0]} {parts[1]}", "%Y-%m-%d %H:%M")
         conn = sqlite3.connect(DB_PATH)
         conn.cursor().execute("INSERT INTO reminders (id, text, time) VALUES (?, ?, ?)", (str(time.time()), parts[2], f"{parts[0]} {parts[1]}"))
         conn.commit(); conn.close()
-        bot.send_message(message.chat.id, f"🕊️ Напомню в {parts[0]} {parts[1]}")
-    except: bot.send_message(message.chat.id, "❌ Ошибка формата.")
+        bot.send_message(message.chat.id, f"🕊️ <b>Гонец отправлен.</b> В {parts[0]} {parts[1]} я извещу тебя, государь.", parse_mode="HTML")
+    except: bot.send_message(message.chat.id, "❌ Ошибка в датах. Изволь писать так: /remind ГГГГ-ММ-ДД ЧЧ:ММ Текст")
 
 @bot.message_handler(func=lambda m: m.text == "🕊️ Гонцы" and m.chat.id == ADMIN_ID)
 def show_reminders(message):
@@ -300,8 +413,8 @@ def show_reminders(message):
     c = conn.cursor()
     c.execute("SELECT text, time FROM reminders WHERE is_sent = 0 ORDER BY time ASC")
     rems = c.fetchall(); conn.close()
-    if not rems: bot.send_message(message.chat.id, "🕊️ Гонцов нет.")
-    else: bot.send_message(message.chat.id, "🕊️ Гонцы:\n\n" + "\n".join([f"📅 {r[1]} — {r[0]}" for r in rems]))
+    if not rems: bot.send_message(message.chat.id, "🕊️ <b>Гонцов в пути нет.</b> Чтобы послать: /remind [дата] [время] [текст]", parse_mode="HTML")
+    else: bot.send_message(message.chat.id, "🕊️ <b>Ожидающие гонцы:</b>\n\n" + "\n".join([f"📅 {r[1]} — {html.escape(r[0])}" for r in rems]), parse_mode="HTML")
 
 def check_reminders():
     while True:
@@ -312,7 +425,7 @@ def check_reminders():
             c.execute("SELECT id, text FROM reminders WHERE time <= ? AND is_sent = 0", (now,))
             due = c.fetchall()
             for r in due:
-                bot.send_message(ADMIN_ID, f"🔔 <b>ГОНЕЦ:</b> {html.escape(r[1])}", parse_mode="HTML")
+                bot.send_message(ADMIN_ID, f"🔔 <b>ВНИМАНИЕ, ЦАРЬ-БАТЮШКА! ГОНЕЦ ПРИБЫЛ:</b>\n\n{html.escape(r[1])}", parse_mode="HTML")
                 c.execute("UPDATE reminders SET is_sent = 1 WHERE id = ?", (r[0],))
             conn.commit(); conn.close()
         except: pass
@@ -336,15 +449,15 @@ def main():
     threading.Thread(target=check_reminders, daemon=True).start()
     threading.Thread(target=run_server, daemon=True).start()
     
-    print("=== ОЧИСТКА ВЕБХУКА И ЗАВИСШИХ ЗАПРОСОВ ===")
+    print("=== ОЧИСТКА ВЕБХУКА ===")
     bot.remove_webhook()
     try:
         bot.delete_webhook(drop_pending_updates=True)
     except Exception as e:
         print(f"Очистка не удалась: {e}")
 
-    print("=== СЕРВЕР ЗАПУЩЕН, ЖДУ КОМАНД ===")
-    time.sleep(3)  # Пауза, чтобы старый процесс окончательно умер
+    print("=== СЕРВЕР ЗАПУЩЕН ===")
+    time.sleep(3)
     
     try:
         bot.infinity_polling(timeout=20, long_polling_timeout=10, skip_pending=True)
