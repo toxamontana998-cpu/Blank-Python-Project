@@ -1,5 +1,2 @@
 pyTelegramBotAPI
-edge-tts
-pydub
-static-ffmpeg
 requests
