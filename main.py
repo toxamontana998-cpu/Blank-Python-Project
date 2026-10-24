@@ -8,7 +8,8 @@ import asyncio
 import edge_tts
 import io
 import traceback
-import google.generativeai as genai
+import base64
+import requests
 import telebot
 from telebot import types
 from pydub import AudioSegment
@@ -26,14 +27,15 @@ except Exception as e:
 
 # --- ТОКЕНЫ ---
 TELEGRAM_BOT_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN")
-GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY")
+OPENROUTER_API_KEY = os.environ.get("OPENROUTER_API_KEY")
 ADMIN_ID = 6385559900
 
 if not TELEGRAM_BOT_TOKEN: raise RuntimeError("НЕТ ТОКЕНА БОТА")
-if not GEMINI_API_KEY: raise RuntimeError("НЕТ КЛЮЧА GEMINI")
+if not OPENROUTER_API_KEY: raise RuntimeError("НЕТ КЛЮЧА OPENROUTER")
 
-# --- ИИ (СТАРЫЙ СТАБИЛЬНЫЙ SDK) ---
-genai.configure(api_key=GEMINI_API_KEY)
+# --- МОДЕЛЬ OPENROUTER (БЕСПЛАТНАЯ МУЛЬТИМОДАЛЬНАЯ) ---
+OPENROUTER_URL = "https://openrouter.ai/api/v1/chat/completions"
+MODEL_NAME = "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free"
 
 AI_PERSONA = (
     "Ты — верный, почтительный и преданный цифровой слуга великого Царя-батюшки "
@@ -66,11 +68,6 @@ AI_PERSONA = (
     "— НИКОГДА не используй фразы вроде 'целовать ноги', 'прах у ног твоих', 'ничтожный раб'.\n"
     "— КАТЕГОРИЧЕСКИ ЗАПРЕЩЁН современный сленг, английские слова и интернет-термины.\n\n"
     "ОБЯЗАТЕЛЬНО: идеальная пунктуация. Говори ЧЁТКО, ЯСНО, КРАСИВО, ЖИВО, без мямленья."
-)
-
-model = genai.GenerativeModel(
-    model_name='gemini-1.5-flash',
-    system_instruction=AI_PERSONA
 )
 
 async def synthesize_speech(text):
@@ -143,11 +140,33 @@ def handle_voice(message):
         file_info = bot.get_file(message.voice.file_id)
         downloaded = bot.download_file(file_info.file_path)
         
-        audio_part = {"mime_type": "audio/ogg", "data": downloaded}
+        # OpenRouter требует base64 и формат
+        base64_audio = base64.b64encode(downloaded).decode('utf-8')
         
-        response = model.generate_content([audio_part, "Расшифруй речь господина и ответь согласно роли."])
+        headers = {
+            "Authorization": f"Bearer {OPENROUTER_API_KEY}",
+            "Content-Type": "application/json"
+        }
         
-        reply_text = response.text or "Смилуйся, государь, но я не разобрал."
+        payload = {
+            "model": MODEL_NAME,
+            "messages": [
+                {"role": "system", "content": AI_PERSONA},
+                {"role": "user", "content": [
+                    {"type": "text", "text": "Расшифруй речь господина и ответь согласно роли."},
+                    {"type": "input_audio", "input_audio": {"data": base64_audio, "format": "ogg"}}
+                ]}
+            ]
+        }
+        
+        response = requests.post(OPENROUTER_URL, headers=headers, json=payload, timeout=30)
+        response.raise_for_status()
+        data = response.json()
+        
+        reply_text = data['choices'][0]['message']['content']
+        if not reply_text:
+            reply_text = "Смилуйся, государь, но я не разобрал."
+
         display_text = reply_text if len(reply_text) <= 3500 else reply_text[:3500] + "..."
         bot.edit_message_text(f"📜 <b>Ответ:</b>\n\n{html.escape(display_text)}", chat_id=message.chat.id, message_id=msg.message_id, parse_mode="HTML")
         
@@ -157,7 +176,7 @@ def handle_voice(message):
         bot.send_voice(message.chat.id, ogg_io, caption="🕊️ Слушаюсь, государь!")
         
     except Exception as e:
-        bot.edit_message_text(f"❌ Ошибка: {html.escape(str(e)[:100])}", chat_id=message.chat.id, message_id=msg.message_id, parse_mode="HTML")
+        bot.edit_message_text(f"❌ Ошибка: {html.escape(str(e)[:150])}", chat_id=message.chat.id, message_id=msg.message_id, parse_mode="HTML")
 
 @bot.message_handler(func=lambda m: m.chat.id == ADMIN_ID and m.text and not m.text.startswith('/') and m.text not in [
     "🏰 Пополнить казну", "🧠 Спросить советника", "🕯️ Царская сводка", 
@@ -166,8 +185,27 @@ def handle_voice(message):
 def process_ai_question(message):
     msg = bot.reply_to(message, "⏳ <i>Ищу ответ...</i>", parse_mode="HTML")
     try:
-        response = model.generate_content(message.text)
-        reply_text = response.text or "Смилуйся, государь, но летописи молчат."
+        headers = {
+            "Authorization": f"Bearer {OPENROUTER_API_KEY}",
+            "Content-Type": "application/json"
+        }
+        
+        payload = {
+            "model": MODEL_NAME,
+            "messages": [
+                {"role": "system", "content": AI_PERSONA},
+                {"role": "user", "content": message.text}
+            ]
+        }
+        
+        response = requests.post(OPENROUTER_URL, headers=headers, json=payload, timeout=30)
+        response.raise_for_status()
+        data = response.json()
+        
+        reply_text = data['choices'][0]['message']['content']
+        if not reply_text:
+            reply_text = "Смилуйся, государь, но летописи молчат."
+
         display_text = reply_text if len(reply_text) <= 3500 else reply_text[:3500] + "..."
         bot.edit_message_text(html.escape(display_text), chat_id=message.chat.id, message_id=msg.message_id, parse_mode="HTML", reply_markup=get_main_menu())
         
@@ -177,7 +215,7 @@ def process_ai_question(message):
         bot.send_voice(message.chat.id, ogg_io, caption="🕊️ Слушаюсь, государь!")
         
     except Exception as e:
-        bot.edit_message_text(f"❌ Ошибка: {html.escape(str(e)[:100])}", chat_id=message.chat.id, message_id=msg.message_id, parse_mode="HTML", reply_markup=get_main_menu())
+        bot.edit_message_text(f"❌ Ошибка: {html.escape(str(e)[:150])}", chat_id=message.chat.id, message_id=msg.message_id, parse_mode="HTML", reply_markup=get_main_menu())
 
 @bot.message_handler(func=lambda m: m.text == "🧠 Спросить советника" and m.chat.id == ADMIN_ID)
 def ask_ai_start(message):
