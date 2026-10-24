@@ -87,19 +87,17 @@ def init_db():
 def get_main_menu():
     markup = types.ReplyKeyboardMarkup(resize_keyboard=True, row_width=2)
     markup.add(
-        types.KeyboardButton("🏰 Пополнить казну"),
-        types.KeyboardButton("🧠 Спросить советника"),
-        types.KeyboardButton("🕯️ Царская сводка"),
-        types.KeyboardButton("🪶 Список указов"),
-        types.KeyboardButton("📖 Рукописи"),
-        types.KeyboardButton("🕊️ Гонцы"),
-        types.KeyboardButton("⚔️ Царская вахта"),
-        types.KeyboardButton("💸 Траты из казны"),
-        types.KeyboardButton("💰 Прибыток за вахту"),
-        types.KeyboardButton("🔮 Предсказание прибытка"),
-        types.KeyboardButton("💣 Служба завтра"),
-        types.KeyboardButton("📕 Долговая книга"),
-        types.KeyboardButton("📜 Свиток помощи")
+        types.KeyboardButton("🧠 Спросить советника")
+    )
+    markup.add(
+        types.KeyboardButton("💰 Царская казна"),
+        types.KeyboardButton("⚔️ Несение службы")
+    )
+    markup.add(
+        types.KeyboardButton("📜 Царские бумаги")
+    )
+    markup.add(
+        types.KeyboardButton("💡 Государева грамота")
     )
     return markup
 
@@ -110,24 +108,62 @@ def deny_access(message):
 @bot.message_handler(commands=['start', 'menu'], func=lambda m: m.chat.id == ADMIN_ID)
 def start(message):
     text = ("👑 <b>Да здравствует Царь-батюшка!</b>\n\nТвой верный слуга приветствует тебя. Изволь выбрать, что прикажешь:\n\n"
-            "🏰 <b>Пополнить казну</b> — внести данные о службе.\n"
             "🧠 <b>Спросить советника</b> — вопросить мудрость.\n"
-            "🕯️ <b>Царская сводка</b> — узреть статистику за всё время.\n"
-            "🪶 <b>Список указов</b> — добавить задачу (через /add).\n"
-            "📖 <b>Рукописи</b> — записать заметку (через /note).\n"
-            "🕊️ <b>Гонцы</b> — поставить напоминание (через /remind).\n"
-            "⚔️ <b>Царская вахта</b> — сроки и график службы.\n"
-            "💸 <b>Траты из казны</b> — записать издержки.\n"
-            "💰 <b>Прибыток за вахту</b> — узреть чистую монету.\n"
-            "🔮 <b>Предсказание прибытка</b> — узреть, сколько привезёшь домой.\n"
-            "💣 <b>Служба завтра</b> — послать гонца с напоминанием.\n"
-            "📕 <b>Долговая книга</b> — учесть долги.\n\n"
-            "📜 <i>Свиток со скрытыми командами — нажми кнопку «Свиток помощи» внизу.</i>")
+            "💰 <b>Царская казна</b> — внести монеты и издержки.\n"
+            "⚔️ <b>Несение службы</b> — сроки вахты и графики.\n"
+            "📜 <b>Царские бумаги</b> — указы, долги и рукописи.\n"
+            "💡 <b>Государева грамота</b> — узреть скрытые команды.")
     bot.send_message(message.chat.id, text, parse_mode="HTML", reply_markup=get_main_menu())
 
-@bot.message_handler(func=lambda m: m.text == "📜 Свиток помощи" and m.chat.id == ADMIN_ID)
+# --- ПОДМЕНЮ ---
+@bot.message_handler(func=lambda m: m.text == "💰 Царская казна" and m.chat.id == ADMIN_ID)
+def menu_finance(message):
+    markup = types.InlineKeyboardMarkup(row_width=1)
+    markup.add(
+        types.InlineKeyboardButton("🏰 Пополнить казну", callback_data="btn_shift"),
+        types.InlineKeyboardButton("💸 Записать трату", callback_data="btn_expense"),
+        types.InlineKeyboardButton("📊 Прибыток за вахту", callback_data="btn_vakhta_stats")
+    )
+    bot.send_message(message.chat.id, "💰 <b>Царская казна:</b>\nИзволь выбрать, что прикажешь.", parse_mode="HTML", reply_markup=markup)
+
+@bot.message_handler(func=lambda m: m.text == "⚔️ Несение службы" and m.chat.id == ADMIN_ID)
+def menu_duty(message):
+    markup = types.InlineKeyboardMarkup(row_width=1)
+    markup.add(
+        types.InlineKeyboardButton("📅 Вахта и график", callback_data="btn_vakhta"),
+        types.InlineKeyboardButton("🔮 Предсказание прибытка", callback_data="btn_forecast"),
+        types.InlineKeyboardButton("💣 Служба завтра", callback_data="btn_tomorrow")
+    )
+    bot.send_message(message.chat.id, "⚔️ <b>Несение службы:</b>\nИзволь выбрать, что прикажешь.", parse_mode="HTML", reply_markup=markup)
+
+@bot.message_handler(func=lambda m: m.text == "📜 Царские бумаги" and m.chat.id == ADMIN_ID)
+def menu_papers(message):
+    markup = types.InlineKeyboardMarkup(row_width=1)
+    markup.add(
+        types.InlineKeyboardButton("📕 Долговая книга", callback_data="btn_debts"),
+        types.InlineKeyboardButton("🪶 Список указов", callback_data="btn_tasks"),
+        types.InlineKeyboardButton("📖 Рукописи", callback_data="btn_notes")
+    )
+    bot.send_message(message.chat.id, "📜 <b>Царские бумаги:</b>\nИзволь выбрать, что прикажешь.", parse_mode="HTML", reply_markup=markup)
+
+@bot.callback_query_handler(func=lambda c: c.data.startswith('btn_') and c.message.chat.id == ADMIN_ID)
+def process_inline_buttons(call):
+    bot.delete_message(call.message.chat.id, call.message.message_id)
+    bot.answer_callback_query(call.id)
+    
+    if call.data == 'btn_shift': start_shift_report(call.message)
+    elif call.data == 'btn_expense': expense_menu(call.message)
+    elif call.data == 'btn_vakhta_stats': vakhta_stats(call.message)
+    elif call.data == 'btn_vakhta': vakhta_menu(call.message)
+    elif call.data == 'btn_forecast': vakhta_forecast(call.message)
+    elif call.data == 'btn_tomorrow': remind_shift_tomorrow(call.message)
+    elif call.data == 'btn_debts': debt_menu(call.message)
+    elif call.data == 'btn_tasks': show_tasks(call.message)
+    elif call.data == 'btn_notes': show_notes(call.message)
+
+@bot.message_handler(func=lambda m: m.text == "💡 Государева грамота" and m.chat.id == ADMIN_ID)
 def help_button(message):
-    text = ("📜 <b>Царские скрытые команды:</b>\n\n"
+    text = ("💡 <b>Государева грамота:</b>\n\n"
             "🔹 /add [текст] — издать новый указ\n"
             "🔹 /note [текст] — записать в рукописи\n"
             "🔹 /remind ГГГГ-ММ-ДД ЧЧ:ММ [текст] — послать гонца\n"
@@ -173,10 +209,8 @@ def handle_voice(message):
 
 # --- ИИ ---
 @bot.message_handler(func=lambda m: m.chat.id == ADMIN_ID and m.text and not m.text.startswith('/') and m.text not in [
-    "🏰 Пополнить казну", "🧠 Спросить советника", "🕯️ Царская сводка", 
-    "🪶 Список указов", "📖 Рукописи", "🕊️ Гонцы", "⚔️ Царская вахта", 
-    "💸 Траты из казны", "💰 Прибыток за вахту", "🔮 Предсказание прибытка",
-    "💣 Служба завтра", "📕 Долговая книга", "📜 Свиток помощи"
+    "🧠 Спросить советника", "💰 Царская казна", "⚔️ Несение службы", 
+    "📜 Царские бумаги", "💡 Государева грамота"
 ])
 def process_ai_question(message):
     msg = bot.send_message(message.chat.id, "⏳ <i>Слуга твой ищет ответ в древних свитках...</i>", parse_mode="HTML")
@@ -203,7 +237,6 @@ def ask_ai_start(message):
     bot.send_message(message.chat.id, "🧠 <b>Изволь задать вопрос, государь.</b> Твой слуга внимает.", parse_mode="HTML")
 
 # --- КАЗНА ---
-@bot.message_handler(func=lambda m: m.text == "🏰 Пополнить казну" and m.chat.id == ADMIN_ID)
 def start_shift_report(message):
     user_data[message.chat.id] = {}
     msg = bot.send_message(message.chat.id, "⚖️ <b>Царь-батюшка, приступим к учёту казны.</b>\n\nСколько часов изволили отслужить во благо?", parse_mode="HTML")
@@ -267,10 +300,7 @@ def save_shift_to_db(chat_id, pay):
     conn = sqlite3.connect(DB_PATH)
     conn.cursor().execute("INSERT INTO shifts (date, pay) VALUES (?, ?)", (datetime.now().strftime("%d.%m.%Y"), pay))
     conn.commit(); conn.close()
-    if chat_id in user_data: del user_data[chat_id]
-
-# --- СВОДКА (общая) ---
-@bot.message_handler(func=lambda m: m.text == "🕯️ Царская сводка" and m.chat.id == ADMIN_ID)
+    if chat_id in user_data: del user_data[chat_id]# --- СВОДКА (общая) ---
 def show_stats(message):
     conn = sqlite3.connect(DB_PATH)
     c = conn.cursor()
@@ -279,8 +309,9 @@ def show_stats(message):
     c.execute("SELECT COUNT(id) FROM tasks WHERE status = 0")
     active_tasks = c.fetchone()[0]
     conn.close()
-    bot.send_message(message.chat.id, f"🕯️ <b>Сводка из царских архивов:</b>\n\n🏦 Всего в казне: {total_pay or 0} ₽\n📅 Отработано смен: {total_shifts or 0}\n📜 Указов в ожидании: {active_tasks}", parse_mode="HTML")# --- ВАХТА ---
-@bot.message_handler(func=lambda m: m.text == "⚔️ Царская вахта" and m.chat.id == ADMIN_ID)
+    bot.send_message(message.chat.id, f"🕯️ <b>Сводка из царских архивов:</b>\n\n🏦 Всего в казне: {total_pay or 0} ₽\n📅 Отработано смен: {total_shifts or 0}\n📜 Указов в ожидании: {active_tasks}", parse_mode="HTML")
+
+# --- ВАХТА ---
 def vakhta_menu(message):
     conn = sqlite3.connect(DB_PATH)
     c = conn.cursor()
@@ -417,7 +448,6 @@ def process_w_days(message):
     if message.chat.id in user_data: del user_data[message.chat.id]
 
 # --- РАСХОДЫ ---
-@bot.message_handler(func=lambda m: m.text == "💸 Траты из казны" and m.chat.id == ADMIN_ID)
 def expense_menu(message):
     msg = bot.send_message(message.chat.id, "💰 <b>Изволь назвать, сколько монет изволил потратить?</b>", parse_mode="HTML")
     bot.register_next_step_handler(msg, process_expense_amount)
@@ -441,7 +471,6 @@ def process_expense_desc(message):
     if message.chat.id in user_data: del user_data[message.chat.id]
 
 # --- СВОДКА ЗА ВАХТУ ---
-@bot.message_handler(func=lambda m: m.text == "💰 Прибыток за вахту" and m.chat.id == ADMIN_ID)
 def vakhta_stats(message):
     conn = sqlite3.connect(DB_PATH)
     c = conn.cursor()
@@ -468,7 +497,6 @@ def vakhta_stats(message):
         bot.send_message(message.chat.id, f"❌ Смилуйся, государь, летописи запутались. Ошибка: {e}")
 
 # --- ПРЕДСКАЗАНИЕ ПРИБЫТКА ---
-@bot.message_handler(func=lambda m: m.text == "🔮 Предсказание прибытка" and m.chat.id == ADMIN_ID)
 def vakhta_forecast(message):
     conn = sqlite3.connect(DB_PATH)
     c = conn.cursor()
@@ -514,7 +542,6 @@ def vakhta_forecast(message):
         bot.send_message(message.chat.id, f"❌ Смилуйся, государь, но звёзды молчат. Ошибка: {e}")
 
 # --- ДОЛГОВАЯ КНИГА ---
-@bot.message_handler(func=lambda m: m.text == "📕 Долговая книга" and m.chat.id == ADMIN_ID)
 def debt_menu(message):
     conn = sqlite3.connect(DB_PATH)
     c = conn.cursor()
@@ -574,7 +601,6 @@ def process_debt_amount(message):
         bot.send_message(message.chat.id, "❌ Смилуйся, государь, но мне нужны только цифры.", reply_markup=get_main_menu())
 
 # --- СЛУЖБА ЗАВТРА ---
-@bot.message_handler(func=lambda m: m.text == "💣 Служба завтра" and m.chat.id == ADMIN_ID)
 def remind_shift_tomorrow(message):
     tomorrow = (datetime.now() + timedelta(days=1)).strftime("%Y-%m-%d")
     remind_time = f"{tomorrow} 18:00"
@@ -595,7 +621,6 @@ def add_task(message):
         bot.send_message(message.chat.id, "🪶 <b>Указ принят!</b> Твой слуга внёс его в список.", parse_mode="HTML")
     else: bot.send_message(message.chat.id, "Царь-батюшка, соизволь написать текст указа после /add")
 
-@bot.message_handler(func=lambda m: m.text == "🪶 Список указов" and m.chat.id == ADMIN_ID)
 def show_tasks(message):
     conn = sqlite3.connect(DB_PATH)
     c = conn.cursor()
@@ -632,7 +657,6 @@ def add_note(message):
         bot.send_message(message.chat.id, "📖 <b>Запись сохранена.</b>", parse_mode="HTML")
     else: bot.send_message(message.chat.id, "Царь-батюшка, напиши текст после /note")
 
-@bot.message_handler(func=lambda m: m.text == "📖 Рукописи" and m.chat.id == ADMIN_ID)
 def show_notes(message):
     conn = sqlite3.connect(DB_PATH)
     c = conn.cursor()
@@ -656,7 +680,6 @@ def add_reminder(message):
         bot.send_message(message.chat.id, f"🕊️ <b>Гонец отправлен.</b> В {parts[0]} {parts[1]} я извещу тебя, государь.", parse_mode="HTML")
     except: bot.send_message(message.chat.id, "❌ Ошибка в датах. Изволь писать так: /remind ГГГГ-ММ-ДД ЧЧ:ММ Текст")
 
-@bot.message_handler(func=lambda m: m.text == "🕊️ Гонцы" and m.chat.id == ADMIN_ID)
 def show_reminders(message):
     conn = sqlite3.connect(DB_PATH)
     c = conn.cursor()
@@ -665,7 +688,7 @@ def show_reminders(message):
     if not rems: bot.send_message(message.chat.id, "🕊️ <b>Гонцов в пути нет.</b> Чтобы послать: /remind [дата] [время] [текст]", parse_mode="HTML")
     else: bot.send_message(message.chat.id, "🕊️ <b>Ожидающие гонцы:</b>\n\n" + "\n".join([f"📅 {r[1]} — {html.escape(r[0])}" for r in rems]), parse_mode="HTML")
 
-def check_reminders():
+ def check_reminders():
     while True:
         try:
             now = datetime.now().strftime("%Y-%m-%d %H:%M")
