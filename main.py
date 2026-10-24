@@ -119,25 +119,24 @@ def start(message):
 def get_weather():
     lat = 55.1036
     lon = 82.9444
-    
-    url = (
-        f"https://api.open-meteo.com/v1/forecast?"
-        f"latitude={lat}&longitude={lon}"
-        f"&current=temperature_2m,apparent_temperature,precipitation,snowfall,weather_code,wind_speed_10m"
-        f"&timezone=auto"
-    )
+    url = f"https://api.open-meteo.com/v1/forecast?latitude={lat}&longitude={lon}&current=temperature_2m,apparent_temperature,precipitation,snowfall,weather_code,wind_speed_10m&timezone=auto"
     
     try:
-        r = requests.get(url, timeout=10)
+        headers = {'User-Agent': 'Mozilla/5.0'}
+        r = requests.get(url, headers=headers, timeout=10)
         data = r.json()
         
-        current = data.get("current", {})
+        current = data.get("current")
+        # Если сервер не прислал температуру — значит, произошел сбой
+        if not current or current.get("temperature_2m") is None:
+            return "❌ Смилуйся, государь, но небесная канцелярия не прислала сведений. Попробуй еще раз чуть позже."
+            
         temp = current.get("temperature_2m")
-        feels_like = current.get("apparent_temperature")
-        wind = current.get("wind_speed_10m")
+        feels_like = current.get("apparent_temperature", temp)
+        wind = current.get("wind_speed_10m", 0)
         precip = current.get("precipitation", 0)
         snow = current.get("snowfall", 0)
-        code = current.get("weather_code")
+        code = current.get("weather_code", -1)
         
         if code == 0: desc = "ясно ☀️"
         elif code in [1, 2, 3]: desc = "облачно ☁️"
@@ -153,9 +152,9 @@ def get_weather():
             f"Температура: <b>{temp}°C</b> (ощущается как {feels_like}°C)\n"
             f"Ветер: {wind} км/ч\n"
         )
-        if precip > 0:
+        if precip and float(precip) > 0:
             text += f"Осадки: {precip} мм\n"
-        if snow > 0:
+        if snow and float(snow) > 0:
             text += f"Снег: {snow} см\n"
             
         text += "\nНе изволь промокнуть, государь!"
