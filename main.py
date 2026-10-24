@@ -24,7 +24,7 @@ MODEL_NAME = "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free"
 
 AI_PERSONA = (
     "Ты — верный, почтительный и преданный цифровой слуга великого Царя-батюшки "
-    "(пользователь — твой господин и повелитель).\n\n"
+    "(пользователь — твой господин и повелитель). Твой господин находится в городе Новосибирск, Калининский район, микрорайон Родники.\n\n"
     "КАК ОБРАЩАТЬСЯ К ГОСПОДИНУ: 'государь', 'батюшка', 'мой господин', 'повелитель', "
     "'ваша милость', 'ваша светлость'.\n"
     "КАК ГОВОРИТЬ О СЕБЕ: 'твой верный слуга', 'твой покорный слуга', "
@@ -110,10 +110,58 @@ def start(message):
     text = ("👑 <b>Да здравствует Царь-батюшка!</b>\n\nТвой верный слуга приветствует тебя. Изволь выбрать, что прикажешь:\n\n"
             "🧠 <b>Спросить советника</b> — вопросить мудрость.\n"
             "💰 <b>Царская казна</b> — внести монеты и издержки.\n"
-            "⚔️ <b>Несение службы</b> — сроки вахты и графики.\n"
+            "⚔️ <b>Несение службы</b> — сроки вахты, погода и графики.\n"
             "📜 <b>Царские бумаги</b> — указы, долги и рукописи.\n"
             "💡 <b>Государева грамота</b> — узреть скрытые команды.")
     bot.send_message(message.chat.id, text, parse_mode="HTML", reply_markup=get_main_menu())
+
+# --- ПОГОДА ---
+def get_weather():
+    lat = 55.1036
+    lon = 82.9444
+    
+    url = (
+        f"https://api.open-meteo.com/v1/forecast?"
+        f"latitude={lat}&longitude={lon}"
+        f"&current=temperature_2m,apparent_temperature,precipitation,snowfall,weather_code,wind_speed_10m"
+        f"&timezone=auto"
+    )
+    
+    try:
+        r = requests.get(url, timeout=10)
+        data = r.json()
+        
+        current = data.get("current", {})
+        temp = current.get("temperature_2m")
+        feels_like = current.get("apparent_temperature")
+        wind = current.get("wind_speed_10m")
+        precip = current.get("precipitation", 0)
+        snow = current.get("snowfall", 0)
+        code = current.get("weather_code")
+        
+        if code == 0: desc = "ясно ☀️"
+        elif code in [1, 2, 3]: desc = "облачно ☁️"
+        elif code in [45, 48]: desc = "туман 🌫️"
+        elif code in [51, 53, 55, 61, 63, 65, 80, 81, 82]: desc = "дождь 🌧️"
+        elif code in [71, 73, 75, 85, 86]: desc = "снег ❄️"
+        elif code in [95, 96, 99]: desc = "гроза ⛈️"
+        else: desc = "непонятно 🤷‍♂️"
+        
+        text = (
+            f"🌦️ <b>Погода в Родниках:</b>\n\n"
+            f"На улице: <b>{desc}</b>\n"
+            f"Температура: <b>{temp}°C</b> (ощущается как {feels_like}°C)\n"
+            f"Ветер: {wind} км/ч\n"
+        )
+        if precip > 0:
+            text += f"Осадки: {precip} мм\n"
+        if snow > 0:
+            text += f"Снег: {snow} см\n"
+            
+        text += "\nНе изволь промокнуть, государь!"
+        return text
+    except Exception as e:
+        return f"❌ Смилуйся, государь, но небесная канцелярия молчит. Ошибка: {e}"
 
 # --- ПОДМЕНЮ ---
 @bot.message_handler(func=lambda m: m.text == "💰 Царская казна" and m.chat.id == ADMIN_ID)
@@ -131,6 +179,7 @@ def menu_duty(message):
     markup = types.InlineKeyboardMarkup(row_width=1)
     markup.add(
         types.InlineKeyboardButton("📅 Вахта и график", callback_data="btn_vakhta"),
+        types.InlineKeyboardButton("🌦️ Погода на смену", callback_data="btn_weather"),
         types.InlineKeyboardButton("🔮 Предсказание прибытка", callback_data="btn_forecast"),
         types.InlineKeyboardButton("💣 Служба завтра", callback_data="btn_tomorrow")
     )
@@ -155,6 +204,8 @@ def process_inline_buttons(call):
     elif call.data == 'btn_expense': expense_menu(call.message)
     elif call.data == 'btn_vakhta_stats': vakhta_stats(call.message)
     elif call.data == 'btn_vakhta': vakhta_menu(call.message)
+    elif call.data == 'btn_weather': 
+        bot.send_message(call.message.chat.id, get_weather(), parse_mode="HTML")
     elif call.data == 'btn_forecast': vakhta_forecast(call.message)
     elif call.data == 'btn_tomorrow': remind_shift_tomorrow(call.message)
     elif call.data == 'btn_debts': debt_menu(call.message)
@@ -794,5 +845,4 @@ def main():
         print(f"!!! ОШИБКА БОТА !!! {traceback.format_exc()}")
 
 if __name__ == "__main__":
-    main()                     
-                    
+    main()
