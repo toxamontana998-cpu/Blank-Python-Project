@@ -97,7 +97,6 @@ def start(message):
             "🕊️ <b>Гонцы</b> — поставить напоминание (через /remind).")
     bot.send_message(message.chat.id, text, parse_mode="HTML", reply_markup=get_main_menu())
 
-# Заглушка для голосовых, так как мы их отключили
 @bot.message_handler(content_types=['voice'])
 def handle_voice(message):
     if message.chat.id == ADMIN_ID:
@@ -139,7 +138,6 @@ def process_ai_question(message):
 
         display_text = reply_text if len(reply_text) <= 3500 else reply_text[:3500] + "..."
         
-        # Убрали reply_markup, чтобы не было ошибки 400 (Bad Request)
         bot.edit_message_text(html.escape(display_text), chat_id=message.chat.id, message_id=msg.message_id, parse_mode="HTML")
         
     except Exception as e:
@@ -337,8 +335,8 @@ def main():
     threading.Thread(target=run_server, daemon=True).start()
     print("=== СЕРВЕР ЗАПУЩЕН, ЖДУ КОМАНД ===")
     try:
-        # drop_pending_updates=True убирает конфликт 409
-        bot.infinity_polling(timeout=20, long_polling_timeout=10, drop_pending_updates=True)
+        bot.remove_webhook()
+        bot.infinity_polling(timeout=20, long_polling_timeout=10, skip_pending=True)
     except Exception as e:
         print(f"!!! ОШИБКА БОТА !!! {traceback.format_exc()}")
 
