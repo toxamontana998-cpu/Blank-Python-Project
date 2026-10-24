@@ -107,7 +107,7 @@ def handle_voice(message):
     "📜 Список указов", "📖 Рукописи", "🕊️ Гонцы"
 ])
 def process_ai_question(message):
-    # Убрали reply_to, чтобы не было цитаты с твоим именем
+    # Убрали reply_to, чтобы бот не делал цитату с твоим именем
     msg = bot.send_message(message.chat.id, "⏳ <i>Ищу ответ...</i>", parse_mode="HTML")
     try:
         headers = {
@@ -139,6 +139,7 @@ def process_ai_question(message):
 
         display_text = reply_text if len(reply_text) <= 3500 else reply_text[:3500] + "..."
         
+        # Отправляем ответ без цитаты
         bot.edit_message_text(html.escape(display_text), chat_id=message.chat.id, message_id=msg.message_id, parse_mode="HTML")
         
     except Exception as e:
@@ -334,9 +335,18 @@ def main():
     init_db()
     threading.Thread(target=check_reminders, daemon=True).start()
     threading.Thread(target=run_server, daemon=True).start()
-    print("=== СЕРВЕР ЗАПУЩЕН, ЖДУ КОМАНД ===")
+    
+    print("=== ОЧИСТКА ВЕБХУКА И ЗАВИСШИХ ЗАПРОСОВ ===")
+    bot.remove_webhook()
     try:
-        bot.remove_webhook()
+        bot.delete_webhook(drop_pending_updates=True)
+    except Exception as e:
+        print(f"Очистка не удалась: {e}")
+
+    print("=== СЕРВЕР ЗАПУЩЕН, ЖДУ КОМАНД ===")
+    time.sleep(3)  # Пауза, чтобы старый процесс окончательно умер
+    
+    try:
         bot.infinity_polling(timeout=20, long_polling_timeout=10, skip_pending=True)
     except Exception as e:
         print(f"!!! ОШИБКА БОТА !!! {traceback.format_exc()}")
