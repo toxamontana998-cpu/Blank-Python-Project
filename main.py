@@ -100,14 +100,15 @@ def start(message):
 @bot.message_handler(content_types=['voice'])
 def handle_voice(message):
     if message.chat.id == ADMIN_ID:
-        bot.reply_to(message, "🎙️ Государь, голосовые пока в опале, изволь писать текстом.")
+        bot.send_message(message.chat.id, "🎙️ Государь, голосовые пока в опале, изволь писать текстом.")
 
 @bot.message_handler(func=lambda m: m.chat.id == ADMIN_ID and m.text and not m.text.startswith('/') and m.text not in [
     "🏰 Пополнить казну", "🧠 Спросить советника", "🕯️ Царская сводка", 
     "📜 Список указов", "📖 Рукописи", "🕊️ Гонцы"
 ])
 def process_ai_question(message):
-    msg = bot.reply_to(message, "⏳ <i>Ищу ответ...</i>", parse_mode="HTML")
+    # Убрали reply_to, чтобы не было цитаты с твоим именем
+    msg = bot.send_message(message.chat.id, "⏳ <i>Ищу ответ...</i>", parse_mode="HTML")
     try:
         headers = {
             "Authorization": f"Bearer {OPENROUTER_API_KEY}",
@@ -231,8 +232,8 @@ def add_task(message):
         conn = sqlite3.connect(DB_PATH)
         conn.cursor().execute("INSERT INTO tasks (text) VALUES (?)", (text,))
         conn.commit(); conn.close()
-        bot.reply_to(message, "📜 Указ принят!")
-    else: bot.reply_to(message, "Текст после /add")
+        bot.send_message(message.chat.id, "📜 Указ принят!")
+    else: bot.send_message(message.chat.id, "Текст после /add")
 
 @bot.message_handler(func=lambda m: m.text == "📜 Список указов" and m.chat.id == ADMIN_ID)
 def show_tasks(message):
@@ -266,8 +267,8 @@ def add_note(message):
         conn = sqlite3.connect(DB_PATH)
         conn.cursor().execute("INSERT INTO notes (text) VALUES (?)", (text,))
         conn.commit(); conn.close()
-        bot.reply_to(message, "📖 Записано.")
-    else: bot.reply_to(message, "Текст после /note")
+        bot.send_message(message.chat.id, "📖 Записано.")
+    else: bot.send_message(message.chat.id, "Текст после /note")
 
 @bot.message_handler(func=lambda m: m.text == "📖 Рукописи" and m.chat.id == ADMIN_ID)
 def show_notes(message):
@@ -282,15 +283,15 @@ def show_notes(message):
 def add_reminder(message):
     parts = message.text.replace('/remind', '').strip().split(' ', 2)
     if len(parts) < 3:
-        bot.reply_to(message, "Формат: /remind ГГГГ-ММ-ДД ЧЧ:ММ Текст")
+        bot.send_message(message.chat.id, "Формат: /remind ГГГГ-ММ-ДД ЧЧ:ММ Текст")
         return
     try:
         datetime.strptime(f"{parts[0]} {parts[1]}", "%Y-%m-%d %H:%M")
         conn = sqlite3.connect(DB_PATH)
         conn.cursor().execute("INSERT INTO reminders (id, text, time) VALUES (?, ?, ?)", (str(time.time()), parts[2], f"{parts[0]} {parts[1]}"))
         conn.commit(); conn.close()
-        bot.reply_to(message, f"🕊️ Напомню в {parts[0]} {parts[1]}")
-    except: bot.reply_to(message, "❌ Ошибка формата.")
+        bot.send_message(message.chat.id, f"🕊️ Напомню в {parts[0]} {parts[1]}")
+    except: bot.send_message(message.chat.id, "❌ Ошибка формата.")
 
 @bot.message_handler(func=lambda m: m.text == "🕊️ Гонцы" and m.chat.id == ADMIN_ID)
 def show_reminders(message):
