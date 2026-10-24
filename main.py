@@ -688,4 +688,87 @@ def morning_report():
             today_str = now.strftime("%Y-%m-%d")
             if now.hour == 7 and now.minute == 0:
                 conn = sqlite3.connect(DB_PATH)
-                c = conn.
+                c = conn.cursor()
+                c.execute("SELECT value FROM bot_status WHERE key = 'morning_report'")
+                row = c.fetchone()
+                if not row or row[0] != today_str:
+                    c.execute("SELECT start_date, end_date, w_start, w_end, w_days FROM vakhta WHERE id = 1")
+                    v_row = c.fetchone()
+                    
+                    c.execute("SELECT COUNT(id) FROM tasks WHERE status = 0")
+                    tasks_count = c.fetchone()[0]
+                    
+                    c.execute("SELECT SUM(pay) FROM shifts")
+                    earned = c.fetchone()[0] or 0
+                    
+                    text = f"🌅 <b>Доброе утро, государь!</b>\n\n"
+                    text += f"📅 Сегодня: {now.strftime('%d.%m.%Y')}\n"
+                    
+                    if v_row:
+                        start, end, w_start, w_end, w_days = v_row
+                        if w_start and w_end and w_days:
+                            weekday = now.isoweekday()
+                            if str(weekday) in w_days.split(','):
+                                text += f"⚔️ <b>Сегодня на службу:</b> с {w_start} до {w_end}\n"
+                            else:
+                                text += f"🛌 Сегодня выходной, изволь отдохнуть.\n"
+                        
+                        if end:
+                            try:
+                                d2 = datetime.strptime(end, "%d.%m.%Y")
+                                left = (d2 - now).days
+                                if left > 0:
+                                    text += f"⏳ До конца вахты: <b>{left} дней</b>.\n"
+                                else:
+                                    text += f"🏠 Вахта окончена! Изволь собирать вещи.\n"
+                            except: pass
+                    
+                    text += f"\n🪶 Указов в ожидании: <b>{tasks_count}</b>\n"
+                    text += f"🏦 В казне накоплено: <b>{earned} ₽</b>\n\n"
+                    text += "Твой верный слуга желает тебе плодотворного дня!"
+                    
+                    bot.send_message(ADMIN_ID, text, parse_mode="HTML")
+                    
+                    c.execute("REPLACE INTO bot_status (key, value) VALUES ('morning_report', ?)", (today_str,))
+                    conn.commit()
+                conn.close()
+        except Exception as e:
+            print(f"Ошибка утреннего доклада: {e}")
+        time.sleep(60)
+
+# --- ЗАГЛУШКА ДЛЯ RENDER ---
+class DummyServer(BaseHTTPRequestHandler):
+    def do_GET(self):
+        self.send_response(200)
+        self.end_headers()
+        self.wfile.write(b"OK")
+
+def run_server():
+    port = int(os.environ.get("PORT", 8080))
+    server = HTTPServer(('0.0.0.0', port), DummyServer)
+    server.serve_forever()
+
+def main():
+    print("=== СТАРТ БОТА ===")
+    init_db()
+    threading.Thread(target=check_reminders, daemon=True).start()
+    threading.Thread(target=morning_report, daemon=True).start()
+    threading.Thread(target=run_server, daemon=True).start()
+    
+    print("=== ОЧИСТКА ВЕБХУКА ===")
+    bot.remove_webhook()
+    try:
+        bot.delete_webhook(drop_pending_updates=True)
+    except Exception as e:
+        print(f"Очистка не удалась: {e}")
+
+    print("=== СЕРВЕР ЗАПУЩЕН ===")
+    time.sleep(3)
+    
+    try:
+        bot.infinity_polling(timeout=20, long_polling_timeout=10, skip_pending=True)
+    except Exception as e:
+        print(f"!!! ОШИБКА БОТА !!! {traceback.format_exc()}")
+
+if __name__ == "__main__":
+    main()
