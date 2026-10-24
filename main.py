@@ -795,3 +795,15 @@ def main():
 
 if __name__ == "__main__":
     main()
+def main():
+    print("=== СТАРТ БОТА ===")
+    init_db()
+    threading.Thread(targe
+    
+    try:
+        bot.infinity_polling(timeout=20, long_polling_timeout=10, skip_pending=True)
+    except Exception as e:
+        print(f"!!! ОШИБКА БОТА !!! {traceback.format_exc()}")
+
+if __name__ == "__main__":
+    main()
