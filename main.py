@@ -161,9 +161,7 @@ def get_weather():
         text += "\nНе изволь промокнуть, государь!"
         return text
     except Exception as e:
-        return f"❌ Смилуйся, государь, но небесная канцелярия молчит. Ошибка: {e}"
-
-# --- ПОДМЕНЮ ---
+        return f"❌ Смилуйся, государь, но небесная канцелярия молчит. Ошибка: {e}"# --- ПОДМЕНЮ ---
 @bot.message_handler(func=lambda m: m.text == "💰 Царская казна" and m.chat.id == ADMIN_ID)
 def menu_finance(message):
     markup = types.InlineKeyboardMarkup(row_width=1)
@@ -754,68 +752,66 @@ def check_reminders():
         except: pass
         time.sleep(30)
 
-# --- УТРЕННИЙ ДОКЛАД ---
 def morning_report():
     while True:
         try:
             now = datetime.now()
-            today_str = now.strftime("%Y-%m-%d")
             if now.hour == 7 and now.minute == 0:
                 conn = sqlite3.connect(DB_PATH)
                 c = conn.cursor()
                 c.execute("SELECT value FROM bot_status WHERE key = 'morning_report'")
                 row = c.fetchone()
-                if not row or row[0] != today_str:
+                if not row or row[0] != now.strftime("%Y-%m-%d"):
                     c.execute("SELECT start_date, end_date, w_start, w_end, w_days FROM vakhta WHERE id = 1")
                     v_row = c.fetchone()
-                    
                     c.execute("SELECT COUNT(id) FROM tasks WHERE status = 0")
                     tasks_count = c.fetchone()[0]
-                    
                     c.execute("SELECT SUM(pay) FROM shifts")
                     earned = c.fetchone()[0] or 0
-                    
-                    text = f"🌅 <b>Доброе утро, государь!</b>\n\n"
-                    text += f"📅 Сегодня: {now.strftime('%d.%m.%Y')}\n"
-                    
+                    text = f"🌅 <b>Доброе утро, государь!</b>\n\n📅 Сегодня: {now.strftime('%d.%m.%Y')}\n"
                     if v_row:
                         start, end, w_start, w_end, w_days = v_row
                         if w_start and w_end and w_days:
-                            weekday = now.isoweekday()
-                            if str(weekday) in w_days.split(','):
-                                text += f"⚔️ <b>Сегодня на службу:</b> с {w_start} до {w_end}\n"
-                            else:
-                                text += f"🛌 Сегодня выходной, изволь отдохнуть.\n"
-                        
+                            if str(now.isoweekday()) in w_days.split(','): text += f"⚔️ <b>Сегодня на службу:</b> с {w_start} до {w_end}\n"
+                            else: text += f"🛌 Сегодня выходной, изволь отдохнуть.\n"
                         if end:
                             try:
-                                d2 = datetime.strptime(end, "%d.%m.%Y")
-                                left = (d2 - now).days
-                                if left > 0:
-                                    text += f"⏳ До конца вахты: <b>{left} дней</b>.\n"
-                                else:
-                                    text += f"🏠 Вахта окончена! Изволь собирать вещи.\n"
+                                left = (datetime.strptime(end, "%d.%m.%Y") - now).days
+                                if left > 0: text += f"⏳ До конца вахты: <b>{left} дней</b>.\n"
+                                else: text += f"🏠 Вахта окончена! Изволь собирать вещи.\n"
                             except: pass
-                    
-                    text += f"\n🪶 Указов в ожидании: <b>{tasks_count}</b>\n"
-                    text += f"🏦 В казне накоплено: <b>{earned} ₽</b>\n\n"
-                    text += "Твой верный слуга желает тебе плодотворного дня!"
-                    
+                    text += f"\n🪶 Указов в ожидании: <b>{tasks_count}</b>\n🏦 В казне накоплено: <b>{earned} ₽</b>\n\nТвой верный слуга желает тебе плодотворного дня!"
                     bot.send_message(ADMIN_ID, text, parse_mode="HTML")
-                    
-                    c.execute("REPLACE INTO bot_status (key, value) VALUES ('morning_report', ?)", (today_str,))
+                    c.execute("REPLACE INTO bot_status (key, value) VALUES ('morning_report', ?)", (now.strftime("%Y-%m-%d"),))
                     conn.commit()
                 conn.close()
-        except Exception as e:
-            print(f"Ошибка утреннего доклада: {e}")
+        except: pass
         time.sleep(60)
 
-# --- ЗАГЛУШКА ДЛЯ RENDER ---
+@bot.message_handler(commands=['reset'], func=lambda m: m.chat.id == ADMIN_ID)
+def reset_data(message):
+    markup = types.InlineKeyboardMarkup()
+    markup.add(types.InlineKeyboardButton("✅ Да, стереть всё", callback_data="confirm_reset"))
+    markup.add(types.InlineKeyboardButton("❌ Отмена", callback_data="cancel_reset"))
+    bot.send_message(message.chat.id, "⚠️ <b>Государь, изволь подтвердить.</b>\n\nЭто сотрет ВСЕ данные: казну, траты, указы, рукописи и настройки вахты. Начать всё с чистого листа?", parse_mode="HTML", reply_markup=markup)
+
+@bot.callback_query_handler(func=lambda c: c.data in ['confirm_reset', 'cancel_reset'] and c.message.chat.id == ADMIN_ID)
+def process_reset(call):
+    if call.data == 'confirm_reset':
+        conn = sqlite3.connect(DB_PATH)
+        c = conn.cursor()
+        c.execute("DELETE FROM shifts"); c.execute("DELETE FROM expenses"); c.execute("DELETE FROM tasks"); c.execute("DELETE FROM notes"); c.execute("DELETE FROM reminders"); c.execute("DELETE FROM vakhta"); c.execute("DELETE FROM debts"); c.execute("DELETE FROM bot_status")
+        conn.commit(); conn.close()
+        bot.edit_message_text("✅ <b>Всё стерто с лица земли, государь!</b>\n\nЛетописи чисты, можно начинать сначала.", chat_id=call.message.chat.id, message_id=call.message.message_id, parse_mode="HTML")
+    else: bot.delete_message(call.message.chat.id, call.message.message_id)
+
+@bot.message_handler(content_types=['voice'])
+def handle_voice(message):
+    if message.chat.id == ADMIN_ID: bot.send_message(message.chat.id, "🎙️ Государь, голосовые пока в опале, изволь писать текстом.")
+
 class DummyServer(BaseHTTPRequestHandler):
     def do_GET(self):
-        self.send_response(200)
-        self.end_headers()
-        self.wfile.write(b"OK")
+        self.send_response(200); self.end_headers(); self.wfile.write(b"OK")
 
 def run_server():
     port = int(os.environ.get("PORT", 8080))
@@ -829,16 +825,15 @@ def main():
     threading.Thread(target=morning_report, daemon=True).start()
     threading.Thread(target=run_server, daemon=True).start()
     
-    print("=== ОЧИСТКА ВЕБХУКА ===")
-    bot.remove_webhook()
+    print("=== ОЧИСТКА СТАРОГО ЭКЗЕМПЛЯРА (УБИРАЕМ 409) ===")
     try:
+        bot.remove_webhook()
         bot.delete_webhook(drop_pending_updates=True)
+        time.sleep(5)
     except Exception as e:
         print(f"Очистка не удалась: {e}")
 
     print("=== СЕРВЕР ЗАПУЩЕН ===")
-    time.sleep(3)
-    
     try:
         bot.infinity_polling(timeout=20, long_polling_timeout=10, skip_pending=True)
     except Exception as e:
