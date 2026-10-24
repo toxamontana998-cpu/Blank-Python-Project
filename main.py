@@ -155,11 +155,17 @@ def handle_voice(message):
                     {"type": "text", "text": "Расшифруй речь господина и ответь согласно роли."},
                     {"type": "input_audio", "input_audio": {"data": base64_audio, "format": "ogg"}}
                 ]}
-            ]
+            ],
+            "max_tokens": 800
         }
         
-        response = requests.post(OPENROUTER_URL, headers=headers, json=payload, timeout=30)
-        response.raise_for_status()
+        response = requests.post(OPENROUTER_URL, headers=headers, json=payload, timeout=60)
+        
+        if response.status_code != 200:
+            err_text = response.text[:200]
+            bot.edit_message_text(f"❌ Ошибка API ({response.status_code}): {html.escape(err_text)}", chat_id=message.chat.id, message_id=msg.message_id, parse_mode="HTML")
+            return
+
         data = response.json()
         
         reply_text = data['choices'][0]['message']['content']
@@ -194,11 +200,17 @@ def process_ai_question(message):
             "messages": [
                 {"role": "system", "content": AI_PERSONA},
                 {"role": "user", "content": message.text}
-            ]
+            ],
+            "max_tokens": 800
         }
         
-        response = requests.post(OPENROUTER_URL, headers=headers, json=payload, timeout=30)
-        response.raise_for_status()
+        response = requests.post(OPENROUTER_URL, headers=headers, json=payload, timeout=60)
+        
+        if response.status_code != 200:
+            err_text = response.text[:200]
+            bot.edit_message_text(f"❌ Ошибка API ({response.status_code}): {html.escape(err_text)}", chat_id=message.chat.id, message_id=msg.message_id, parse_mode="HTML", reply_markup=get_main_menu())
+            return
+
         data = response.json()
         
         reply_text = data['choices'][0]['message']['content']
@@ -406,11 +418,4 @@ def main():
     init_db()
     threading.Thread(target=check_reminders, daemon=True).start()
     threading.Thread(target=run_server, daemon=True).start()
-    print("=== СЕРВЕР ЗАПУЩЕН, ЖДУ КОМАНД ===", flush=True)
-    try:
-        bot.infinity_polling(timeout=20, long_polling_timeout=10)
-    except Exception as e:
-        print(f"!!! ОШИБКА БОТА !!!\n{traceback.format_exc()}", flush=True)
-
-if __name__ == "__main__":
-    main()
+    print("=== СЕРВЕР ЗАПУЩЕН, ЖДУ КОМАНД ===", flush=
