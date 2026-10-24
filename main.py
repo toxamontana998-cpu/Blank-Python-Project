@@ -4,26 +4,11 @@ import threading
 import sqlite3
 from datetime import datetime
 import time
-import asyncio
-import edge_tts
-import io
 import traceback
-import base64
 import requests
 import telebot
 from telebot import types
-from pydub import AudioSegment
 from http.server import BaseHTTPRequestHandler, HTTPServer
-
-# --- FFMPEG для pydub ---
-try:
-    from static_ffmpeg import run as static_ffmpeg_run
-    _ffmpeg_exe, _ffprobe_exe = static_ffmpeg_run.get_or_fetch_platform_executables_else_raise()
-    AudioSegment.converter = _ffmpeg_exe
-    AudioSegment.ffprobe = _ffprobe_exe
-    print(f"[ffmpeg] using {_ffmpeg_exe}")
-except Exception as e:
-    print(f"[ffmpeg] static-ffmpeg failed: {e}")
 
 # --- ТОКЕНЫ ---
 TELEGRAM_BOT_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN")
@@ -70,25 +55,6 @@ AI_PERSONA = (
     "ОБЯЗАТЕЛЬНО: идеальная пунктуация. Говори ЧЁТКО, ЯСНО, КРАСИВО, ЖИВО, без мямленья."
 )
 
-async def synthesize_speech(text):
-    voice = "ru-RU-DmitryNeural"
-    async def _inner():
-        communicate = edge_tts.Communicate(text, voice, rate="+10%", pitch="+0Hz")
-        buf = b""
-        async for chunk in communicate.stream():
-            if chunk["type"] == "audio":
-                buf += chunk["data"]
-        return buf
-    return await asyncio.wait_for(_inner(), timeout=60)
-
-def convert_mp3_to_ogg_opus(mp3_data: bytes) -> io.BytesIO:
-    mp3_io = io.BytesIO(mp3_data)
-    audio = AudioSegment.from_file(mp3_io, format="mp3")
-    ogg_io = io.BytesIO()
-    audio.export(ogg_io, format="ogg", codec="libopus")
-    ogg_io.seek(0)
-    return ogg_io
-
 # --- БОТ ---
 bot = telebot.TeleBot(TELEGRAM_BOT_TOKEN)
 DB_PATH = os.path.join(os.getcwd(), 'personal_assistant.db')
@@ -128,60 +94,14 @@ def start(message):
             "🕯️ <b>Царская сводка</b> — узреть статистику.\n"
             "📜 <b>Список указов</b> — добавить задачу (через /add).\n"
             "📖 <b>Рукописи</b> — записать заметку (через /note).\n"
-            "🕊️ <b>Гонцы</b> — поставить напоминание (через /remind).\n\n"
-            "🎙️ <i>Можешь отправить голосовое сообщение.</i>")
+            "🕊️ <b>Гонцы</b> — поставить напоминание (через /remind).")
     bot.send_message(message.chat.id, text, parse_mode="HTML", reply_markup=get_main_menu())
 
+# Заглушка для голосовых, так как мы их отключили
 @bot.message_handler(content_types=['voice'])
 def handle_voice(message):
-    if message.chat.id != ADMIN_ID: return
-    msg = bot.reply_to(message, "🎙️ <i>Внимаю...</i>", parse_mode="HTML")
-    try:
-        file_info = bot.get_file(message.voice.file_id)
-        downloaded = bot.download_file(file_info.file_path)
-        
-        base64_audio = base64.b64encode(downloaded).decode('utf-8')
-        
-        headers = {
-            "Authorization": f"Bearer {OPENROUTER_API_KEY}",
-            "Content-Type": "application/json"
-        }
-        
-        payload = {
-            "model": MODEL_NAME,
-            "messages": [
-                {"role": "system", "content": AI_PERSONA},
-                {"role": "user", "content": [
-                    {"type": "text", "text": "Расшифруй речь господина и ответь согласно роли."},
-                    {"type": "input_audio", "input_audio": {"data": base64_audio, "format": "ogg"}}
-                ]}
-            ],
-            "max_tokens": 800
-        }
-        
-        response = requests.post(OPENROUTER_URL, headers=headers, json=payload, timeout=60)
-        
-        if response.status_code != 200:
-            err_text = response.text[:200]
-            bot.edit_message_text(f"❌ Ошибка API ({response.status_code}): {html.escape(err_text)}", chat_id=message.chat.id, message_id=msg.message_id, parse_mode="HTML")
-            return
-
-        data = response.json()
-        
-        reply_text = data['choices'][0]['message']['content']
-        if not reply_text:
-            reply_text = "Смилуйся, государь, но я не разобрал."
-
-        display_text = reply_text if len(reply_text) <= 3500 else reply_text[:3500] + "..."
-        bot.edit_message_text(f"📜 <b>Ответ:</b>\n\n{html.escape(display_text)}", chat_id=message.chat.id, message_id=msg.message_id, parse_mode="HTML")
-        
-        voice_text = reply_text if len(reply_text) <= 800 else reply_text[:800] + "..."
-        mp3_data = asyncio.run(synthesize_speech(voice_text))
-        ogg_io = convert_mp3_to_ogg_opus(mp3_data)
-        bot.send_voice(message.chat.id, ogg_io, caption="🕊️ Слушаюсь, государь!")
-        
-    except Exception as e:
-        bot.edit_message_text(f"❌ Ошибка: {html.escape(str(e)[:150])}", chat_id=message.chat.id, message_id=msg.message_id, parse_mode="HTML")
+    if message.chat.id == ADMIN_ID:
+        bot.reply_to(message, "🎙️ Государь, голосовые пока в опале, изволь писать текстом.")
 
 @bot.message_handler(func=lambda m: m.chat.id == ADMIN_ID and m.text and not m.text.startswith('/') and m.text not in [
     "🏰 Пополнить казну", "🧠 Спросить советника", "🕯️ Царская сводка", 
@@ -201,14 +121,14 @@ def process_ai_question(message):
                 {"role": "system", "content": AI_PERSONA},
                 {"role": "user", "content": message.text}
             ],
-            "max_tokens": 800
+            "max_tokens": 1000
         }
         
         response = requests.post(OPENROUTER_URL, headers=headers, json=payload, timeout=60)
         
         if response.status_code != 200:
             err_text = response.text[:200]
-            bot.edit_message_text(f"❌ Ошибка API ({response.status_code}): {html.escape(err_text)}", chat_id=message.chat.id, message_id=msg.message_id, parse_mode="HTML", reply_markup=get_main_menu())
+            bot.edit_message_text(f"❌ Ошибка API ({response.status_code}): {html.escape(err_text)}", chat_id=message.chat.id, message_id=msg.message_id, parse_mode="HTML")
             return
 
         data = response.json()
@@ -218,15 +138,12 @@ def process_ai_question(message):
             reply_text = "Смилуйся, государь, но летописи молчат."
 
         display_text = reply_text if len(reply_text) <= 3500 else reply_text[:3500] + "..."
-        bot.edit_message_text(html.escape(display_text), chat_id=message.chat.id, message_id=msg.message_id, parse_mode="HTML", reply_markup=get_main_menu())
         
-        voice_text = reply_text if len(reply_text) <= 800 else reply_text[:800] + "..."
-        mp3_data = asyncio.run(synthesize_speech(voice_text))
-        ogg_io = convert_mp3_to_ogg_opus(mp3_data)
-        bot.send_voice(message.chat.id, ogg_io, caption="🕊️ Слушаюсь, государь!")
+        # Убрали reply_markup, чтобы не было ошибки 400 (Bad Request)
+        bot.edit_message_text(html.escape(display_text), chat_id=message.chat.id, message_id=msg.message_id, parse_mode="HTML")
         
     except Exception as e:
-        bot.edit_message_text(f"❌ Ошибка: {html.escape(str(e)[:150])}", chat_id=message.chat.id, message_id=msg.message_id, parse_mode="HTML", reply_markup=get_main_menu())
+        bot.edit_message_text(f"❌ Ошибка: {html.escape(str(e)[:150])}", chat_id=message.chat.id, message_id=msg.message_id, parse_mode="HTML")
 
 @bot.message_handler(func=lambda m: m.text == "🧠 Спросить советника" and m.chat.id == ADMIN_ID)
 def ask_ai_start(message):
@@ -420,7 +337,8 @@ def main():
     threading.Thread(target=run_server, daemon=True).start()
     print("=== СЕРВЕР ЗАПУЩЕН, ЖДУ КОМАНД ===")
     try:
-        bot.infinity_polling(timeout=20, long_polling_timeout=10)
+        # drop_pending_updates=True убирает конфликт 409
+        bot.infinity_polling(timeout=20, long_polling_timeout=10, drop_pending_updates=True)
     except Exception as e:
         print(f"!!! ОШИБКА БОТА !!! {traceback.format_exc()}")
 
