@@ -15,7 +15,7 @@ from telebot import types
 from pydub import AudioSegment
 from http.server import BaseHTTPRequestHandler, HTTPServer
 
-# --- FFMPEG для pydub (Render free tier) ---
+# --- FFMPEG для pydub ---
 try:
     from static_ffmpeg import run as static_ffmpeg_run
     _ffmpeg_exe, _ffprobe_exe = static_ffmpeg_run.get_or_fetch_platform_executables_else_raise()
@@ -23,7 +23,7 @@ try:
     AudioSegment.ffprobe = _ffprobe_exe
     print(f"[ffmpeg] using {_ffmpeg_exe}")
 except Exception as e:
-    print(f"[ffmpeg] static-ffmpeg failed: {e}. Falling back to system ffmpeg.")
+    print(f"[ffmpeg] static-ffmpeg failed: {e}")
 
 # --- ТОКЕНЫ ---
 TELEGRAM_BOT_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN")
@@ -33,7 +33,7 @@ ADMIN_ID = 6385559900
 if not TELEGRAM_BOT_TOKEN: raise RuntimeError("НЕТ ТОКЕНА БОТА")
 if not OPENROUTER_API_KEY: raise RuntimeError("НЕТ КЛЮЧА OPENROUTER")
 
-# --- МОДЕЛЬ OPENROUTER (БЕСПЛАТНАЯ МУЛЬТИМОДАЛЬНАЯ) ---
+# --- МОДЕЛЬ OPENROUTER ---
 OPENROUTER_URL = "https://openrouter.ai/api/v1/chat/completions"
 MODEL_NAME = "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free"
 
@@ -140,7 +140,6 @@ def handle_voice(message):
         file_info = bot.get_file(message.voice.file_id)
         downloaded = bot.download_file(file_info.file_path)
         
-        # OpenRouter требует base64 и формат
         base64_audio = base64.b64encode(downloaded).decode('utf-8')
         
         headers = {
