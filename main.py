@@ -414,8 +414,16 @@ def run_server():
     server.serve_forever()
 
 def main():
-    print("=== СТАРТ БОТА ===", flush=True)
+    print("=== СТАРТ БОТА ===")
     init_db()
     threading.Thread(target=check_reminders, daemon=True).start()
     threading.Thread(target=run_server, daemon=True).start()
-    print("=== СЕРВЕР ЗАПУЩЕН, ЖДУ КОМАНД ===", flush=
+    print("=== СЕРВЕР ЗАПУЩЕН, ЖДУ КОМАНД ===")
+        try:
+        bot.infinity_polling(timeout=20, long_polling_timeout=10)
+    except Exception as e:
+        print(f"!!! ОШИБКА БОТА !!! {traceback.format_exc()}")
+
+if __name__ == "__main__":
+    main()
+
