@@ -419,11 +419,10 @@ def main():
     threading.Thread(target=check_reminders, daemon=True).start()
     threading.Thread(target=run_server, daemon=True).start()
     print("=== СЕРВЕР ЗАПУЩЕН, ЖДУ КОМАНД ===")
-        try:
+    try:
         bot.infinity_polling(timeout=20, long_polling_timeout=10)
     except Exception as e:
         print(f"!!! ОШИБКА БОТА !!! {traceback.format_exc()}")
 
 if __name__ == "__main__":
     main()
-
